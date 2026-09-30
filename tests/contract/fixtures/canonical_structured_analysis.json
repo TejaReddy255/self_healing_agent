@@ -1,0 +1,95 @@
+{
+  "summary": {
+    "pipeline_id": "customer_daily_load",
+    "dag_id": "customer_daily_load",
+    "run_id": "scheduled__2026-09-30T02:00:00+00:00",
+    "task_id": "dq_target_check",
+    "root_cause": "An incremental batch was replayed after a retry, inserting 417 duplicate customer rows.",
+    "impact": "dw.customer holds 100,417 rows instead of 100,000; downstream reports double-count customers.",
+    "affected_system": "postgresql",
+    "affected_resource": "dw.customer",
+    "error_details": "BR-CUST-002 failed: duplicate_count 417, expected 0."
+  },
+  "detailed_findings": [
+    {
+      "title": "Duplicate customer_id values in target",
+      "description": "find_duplicates(dw.customer, [customer_id]) returned 417 duplicated keys.",
+      "evidence_status": "VERIFIED",
+      "severity": "CRITICAL",
+      "category": "DUPLICATE_DATA",
+      "evidence_refs": ["dq_result:BR-CUST-002", "tool:postgres.find_duplicates#1"]
+    },
+    {
+      "title": "Source contains no duplicates",
+      "description": "Source row count is 100,000 with no duplicate customer_id.",
+      "evidence_status": "OBSERVED",
+      "severity": "INFO",
+      "evidence_refs": ["tool:mysql.get_row_count#1"]
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "Delete the 417 duplicate rows, keeping the earliest load per customer_id.",
+      "rationale": "Restores uniqueness without touching valid rows.",
+      "requires_human_approval": true
+    }
+  ],
+  "prevention_measures": ["Make the incremental merge idempotent on customer_id."],
+  "sop_match_status": "NO_MATCH",
+  "matched_sop_reference": null,
+  "proposed_sop": {
+    "title": "Remove duplicate rows after incremental replay",
+    "category": "DUPLICATE_DATA",
+    "target_system": "postgresql",
+    "risk_level": "HIGH",
+    "required_evidence": ["duplicate key count", "source row count", "target row count"],
+    "remediation_steps": ["delete duplicate rows keeping the earliest load per business key"],
+    "verification_steps": ["duplicate count is 0", "target row count equals source row count"],
+    "stop_conditions": ["source also contains duplicates", "duplicate count differs from evidence"],
+    "human_approval_required": true
+  },
+  "proposed_remediation": {
+    "target_system": "postgresql",
+    "target_resources": ["dw.customer"],
+    "risk_level": "HIGH",
+    "preconditions": ["dw.customer has exactly 417 duplicated customer_id rows"],
+    "stop_conditions": ["duplicate count differs from 417", "source contains duplicates"],
+    "steps": ["DELETE duplicate rows in dw.customer keeping min(load_id) per customer_id"],
+    "expected_write_operations": ["delete 417 duplicate rows from dw.customer"],
+    "write_tools": ["postgres.execute_dml"],
+    "max_affected_rows": 417,
+    "retry_airflow_after_success": true,
+    "precondition_assertions": [
+      {
+        "kind": "duplicate_count",
+        "assertion_id": "pre-dup",
+        "resource": "dw.customer",
+        "key_columns": ["customer_id"],
+        "expected": {"op": "eq", "value": 417}
+      }
+    ],
+    "verification_plan": {
+      "assertions": [
+        {
+          "kind": "duplicate_count",
+          "assertion_id": "post-dup",
+          "resource": "dw.customer",
+          "key_columns": ["customer_id"],
+          "expected": {"op": "eq", "value": 0}
+        },
+        {
+          "kind": "row_count",
+          "assertion_id": "post-rows",
+          "resource": "dw.customer",
+          "expected": {"op": "eq", "value": 100000}
+        }
+      ]
+    },
+    "verification_rules": [{"rule_id": "BR-CUST-002", "rule_set_id": "CUSTOMER-DQ"}]
+  },
+  "analysis_confidence": "high",
+  "additional_investigation_needed": [],
+  "fixes_applied": false,
+  "pipeline_status": "failed"
+}

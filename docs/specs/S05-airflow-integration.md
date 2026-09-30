@@ -77,6 +77,7 @@ Revert code.
 
 ## Open issues
 - OQ-03 (Airflow version).
+- From S03 review: `RunId` allows `/`, `?`, `#` and `..` (Airflow run IDs contain `:` and `+`). The Airflow client must URL-encode path segments with `quote(run_id, safe="")`.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

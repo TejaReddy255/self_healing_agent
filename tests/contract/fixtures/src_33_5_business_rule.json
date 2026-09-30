@@ -1,0 +1,23 @@
+{
+  "rule_set_id": "CUSTOMER-DQ",
+  "pipeline_id": "customer_daily_load",
+  "dataset": "dw.customer",
+  "rules": [
+    {
+      "rule_id": "BR-CUST-001",
+      "rule_type": "NOT_NULL",
+      "column": "customer_id",
+      "severity": "CRITICAL",
+      "blocking": true,
+      "expected": {"null_count": 0}
+    },
+    {
+      "rule_id": "BR-CUST-002",
+      "rule_type": "UNIQUE",
+      "column": "customer_id",
+      "severity": "CRITICAL",
+      "blocking": true,
+      "expected": {"duplicate_count": 0}
+    }
+  ]
+}

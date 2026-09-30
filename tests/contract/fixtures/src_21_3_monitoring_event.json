@@ -1,0 +1,19 @@
+{
+  "pipeline_id": "customer_daily_load",
+  "dag_id": "customer_daily_load",
+  "run_id": "scheduled__2026-09-30T02:00:00+00:00",
+  "task_id": "load_customer",
+  "source": "AIRFLOW",
+  "event_type": "TASK_FAILED",
+  "severity": "CRITICAL",
+  "expected": "success",
+  "actual": "failed",
+  "evidence": {
+    "try_number": 2,
+    "state": "failed",
+    "start_date": "2026-09-30T02:01:10+00:00",
+    "end_date": "2026-09-30T02:04:55+00:00",
+    "log_ref": "airflow:customer_daily_load/load_customer/2"
+  },
+  "detected_at": "2026-09-30T02:05:00Z"
+}

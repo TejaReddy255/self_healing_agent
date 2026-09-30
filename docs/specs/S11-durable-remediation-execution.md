@@ -86,6 +86,11 @@ through tool aliasing, and crash semantics.
 Feature flag `REMEDIATION_EXECUTION_ENABLED` (default true in dev, false until P2 sign-off in shared envs). When false,
 approve returns 202 but jobs remain QUEUED.
 
+## Open issues
+- From S03 review: at PRECHECK and before the first write, recompute the hash from the persisted canonical bytes (not an in-memory model: `frozen` is shallow for dicts). Refuse unknown `ApprovalPayload.schema_version`. Drain APPROVED jobs before any deploy that changes the payload contract.
+- From S03 (decision 2026-09-30): incident updates use `incident_status_for(stage, recovery_skipped=…)` through `can_transition`. A failed PRECHECK → REPLAN_REQUIRED is now a legal APPROVED → REPLAN_REQUIRED edge.
+- From S03 review: consider a separate `HealingReport` for W4 output (observed post-state, stop-condition evidence). It is additive.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

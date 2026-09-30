@@ -2,7 +2,7 @@
 title: Architecture — Agentic Self-Healing Pipeline Monitor (greenfield build)
 status: APPROVED (G2 Design, 2026-09-30, product owner)
 version: 0.1
-last_updated: 2026-09-29
+last_updated: 2026-09-30
 inputs:
   - self_healing_platform_architecture_coding_agent.md (v1.3-agent-ready) — "src"
   - docs/use-case-spec.md
@@ -220,7 +220,8 @@ QUEUED → PRECHECK → EXECUTING → TECHNICAL_VERIFY → DQ_VERIFY → RECOVER
 - `DQ_VERIFY` is recorded as `NOT_APPLICABLE` until S20, and afterwards when the plan names no
   verification rules *and* the pipeline has no required DQ rules for the checkpoint.
 - `RECOVERY_TRIGGER/VERIFY` are skipped only when `plan.retry_airflow_after_success = false`. The
-  incident then cannot reach RESOLVED automatically: an operator must confirm, which is recorded.
+  incident then cannot reach RESOLVED automatically: it waits in RECOVERY_RUNNING until an operator
+  confirms recovery, which is recorded (§7.5).
 - **Crash rule:** a lease that expires while in `EXECUTING` → `FAILED(INTERRUPTED_DURING_EXECUTION)`,
   never re-run. Other stages resume.
 
@@ -232,7 +233,7 @@ QUEUED → PRECHECK → EXECUTING → TECHNICAL_VERIFY → DQ_VERIFY → RECOVER
 | INVESTIGATING | RCA_COMPLETED, FAILED |
 | RCA_COMPLETED | AWAITING_APPROVAL, INVESTIGATING, REJECTED |
 | AWAITING_APPROVAL | APPROVED, REJECTED |
-| APPROVED | EXECUTING, FAILED |
+| APPROVED | EXECUTING, FAILED, REPLAN_REQUIRED (PRECHECK finds the plan contradicted, src §25) |
 | EXECUTING | VERIFYING, FAILED, REPLAN_REQUIRED |
 | VERIFYING | RECOVERY_RUNNING, FAILED, REPLAN_REQUIRED |
 | RECOVERY_RUNNING | RESOLVED, FAILED, REPLAN_REQUIRED |
@@ -249,7 +250,13 @@ QUEUED → PRECHECK → EXECUTING → TECHNICAL_VERIFY → DQ_VERIFY → RECOVER
 | TECHNICAL_VERIFY, DQ_VERIFY | VERIFYING |
 | RECOVERY_TRIGGER, RECOVERY_VERIFY (incl. final DQ) | RECOVERY_RUNNING |
 | COMPLETED | RESOLVED |
-| FAILED / REPLAN_REQUIRED | FAILED / REPLAN_REQUIRED |
+| COMPLETED with recovery skipped (`retry_airflow_after_success = false`) | RECOVERY_RUNNING, awaiting operator recovery confirmation; the recorded confirmation → RESOLVED |
+| FAILED / REPLAN_REQUIRED (from any stage) | FAILED / REPLAN_REQUIRED |
+
+Services apply these through `can_transition` (§7.4). The map names the target status; it never
+bypasses the transition table. *(Amended 2026-09-30 during S03, product owner decision: added
+APPROVED → REPLAN_REQUIRED and the recovery-skipped row, so every §7.3 edge is a legal incident
+transition and RESOLVED stays reachable only from RECOVERY_RUNNING.)*
 
 ## 8. Persistence
 

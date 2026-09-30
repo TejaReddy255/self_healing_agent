@@ -1,0 +1,17 @@
+{
+  "sop_id": "SOP-PG-001",
+  "title": "PostgreSQL Missing Partition Recovery",
+  "status": "APPROVED",
+  "target_system": "postgresql",
+  "category": "MISSING_PARTITION",
+  "risk_level": "HIGH",
+  "required_evidence": ["parent_table", "partition_key", "partition_strategy", "missing_partition_range"],
+  "remediation_steps": ["verify exact missing partition boundary", "create exact missing partition"],
+  "verification_steps": [
+    "verify partition registration and bounds",
+    "retry affected Airflow task/run",
+    "rerun relevant DQ checks"
+  ],
+  "stop_conditions": ["partition strategy cannot be verified", "overlapping partition exists"],
+  "human_approval_required": true
+}

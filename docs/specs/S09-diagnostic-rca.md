@@ -73,6 +73,10 @@ Indirect prompt injection is the main risk. Toolset composition and plan validat
 ## Rollback
 Revert code. The `analyses` table is additive.
 
+## Open issues
+- From S03 (decision 2026-09-30): "writes need ≥ 1 verification assertion" is enforced on `ApprovalPayload`, not on `RemediationPlan`. An RCA whose plan lacks assertions stays schema-valid, and N5 marks it `executable_plan=false` (S09-AC4 stands as written).
+- From S03 review: `DiagnosticService` rejects `fixes_applied=true`, `pipeline_status="remediated"` and findings labelled `EXECUTED`/`VERIFIED_FIXED` from the read-only RCA. Contract models are `extra="forbid"`, so expect more repair retries; measure them in evals.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

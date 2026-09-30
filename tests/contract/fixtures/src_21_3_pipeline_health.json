@@ -1,0 +1,24 @@
+{
+  "pipeline_id": "customer_daily_load",
+  "overall_status": "CRITICAL",
+  "events": [
+    {
+      "event_id": "0f8e7a52-6f9b-4a55-9d0e-3f7c1c2b9a10",
+      "idempotency_key": "customer_daily_load|scheduled__2026-09-30T02:00:00+00:00|DQ|DQ_RULE_FAILED|BR-CUST-002",
+      "pipeline_id": "customer_daily_load",
+      "dag_id": "customer_daily_load",
+      "run_id": "scheduled__2026-09-30T02:00:00+00:00",
+      "source": "DQ",
+      "event_type": "DQ_RULE_FAILED",
+      "severity": "CRITICAL",
+      "resource": "dw.customer",
+      "rule_id": "BR-CUST-002",
+      "expected": "{\"duplicate_count\": 0}",
+      "actual": "{\"duplicate_count\": 417}",
+      "evidence": {"dq_run_id": "5d1f0e2a-3b4c-4d5e-8f60-718293a4b5c6", "checkpoint": "TARGET"},
+      "detected_at": "2026-09-30T02:20:00Z"
+    }
+  ],
+  "monitor_status": {"airflow": "ok", "dq": "ok", "sla": "ok", "database": "ok", "mcp": "skipped"},
+  "evaluated_at": "2026-09-30T02:20:05Z"
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Pins the SOP a plan follows. ``content_sha256`` pins its exact content, so a metadata reload\nbetween approval and execution cannot change the SOP behind an approved hash (ADR-006).",
+  "properties": {
+    "content_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    },
+    "sop_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Sop Id",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    }
+  },
+  "required": [
+    "sop_id"
+  ],
+  "title": "SOPReference",
+  "type": "object"
+}
