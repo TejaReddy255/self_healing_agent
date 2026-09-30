@@ -20,11 +20,13 @@ class PerformanceRepository:
         if by < 0:
             raise ValueError("counters only increase")
         # A single UPDATE of the form "c = c + n" is atomic under concurrency (row lock).
-        await conn.execute(
+        status = await conn.execute(
             f"UPDATE agent_performance SET {counter} = {counter} + $1, updated_at = now() "  # noqa: S608
             "WHERE id = 1",
             by,
         )
+        if status != "UPDATE 1":  # the seed row from migration 0001 is missing
+            raise RuntimeError("agent_performance row id=1 is missing; run migrations")
 
     async def get(self, conn: Connection) -> dict[str, int]:
         row = await conn.fetchrow(_SELECT_COUNTERS)

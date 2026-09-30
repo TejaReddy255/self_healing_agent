@@ -48,3 +48,15 @@ async def test_unknown_or_negative_increment_rejected(migrated_db: DatabaseSetti
                 await repo.increment(conn, "tool_executions", by=-1)
     finally:
         await database.close()
+
+
+async def test_missing_counter_row_is_an_error(migrated_db: DatabaseSettings) -> None:
+    database = Database(migrated_db)
+    await database.open()
+    try:
+        async with database.connection() as conn:
+            await conn.execute("DELETE FROM agent_performance")
+            with pytest.raises(RuntimeError, match="missing"):
+                await PerformanceRepository().increment(conn, "tool_executions")
+    finally:
+        await database.close()

@@ -45,6 +45,49 @@ def test_prepare_payload_normalises_non_json_values() -> None:
     assert prepare_payload(None, 1024) is None
 
 
+@pytest.mark.spec("S02-AC5")
+def test_prepare_payload_makes_nan_infinity_and_nul_storable() -> None:
+    payload = {
+        "stats": {"mean": float("nan"), "max": float("inf"), "min": float("-inf"), "n": 3.5},
+        "log": "line one\x00line two",
+        "key\x00with_nul": [float("nan"), "ok"],
+    }
+    result = prepare_payload(payload, 65536)
+    assert result == {
+        "stats": {"mean": "nan", "max": "inf", "min": "-inf", "n": 3.5},
+        "log": "line oneline two",
+        "keywith_nul": ["nan", "ok"],
+    }
+    # Serialisable under PostgreSQL's JSON rules: no NaN tokens, no \u0000 escapes.
+    encoded = json.dumps(result, allow_nan=False)
+    assert "\\u0000" not in encoded
+
+
+@pytest.mark.spec("S02-AC5")
+def test_sanitize_strips_nul_from_text_columns_and_rejects_bad_times() -> None:
+    from datetime import timedelta
+    from unittest.mock import MagicMock
+
+    from backend.services.audit_service import AuditService
+
+    service = AuditService(MagicMock(), max_payload_bytes=4096)
+    event = AuditEvent(phase="exec\x00", event_type="tool_call", status="OK", operation="a\x00b")
+    sanitized = service.sanitize(event)
+    assert sanitized.phase == "exec"
+    assert sanitized.operation == "ab"
+
+    future = AuditEvent(
+        phase="p", event_type="e", status="ok", occurred_at=datetime.now(UTC) + timedelta(hours=1)
+    )
+    with pytest.raises(ValueError, match="future"):
+        service.sanitize(future)
+
+
+def test_audit_event_requires_timezone_aware_times() -> None:
+    with pytest.raises(ValueError, match="timezone"):
+        AuditEvent(phase="p", event_type="e", status="ok", occurred_at=datetime(2026, 9, 30))
+
+
 def test_audit_event_rejects_unknown_fields() -> None:
     with pytest.raises(ValueError, match="extra"):
         AuditEvent(phase="p", event_type="e", status="ok", unexpected=1)  # type: ignore[call-arg]

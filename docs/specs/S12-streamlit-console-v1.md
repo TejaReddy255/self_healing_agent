@@ -34,6 +34,8 @@ entirely through FastAPI, including execution-job progress, so that the P2 "base
     portion only), revision-job progress, approve (sends the displayed revision and hash) or reject, revision history, audit.
   - **Execution:** job stage timeline and recovery tracking.
   - **Governance:** performance, LLM costs, analyses history, review/audit summary.
+- Activity feed: follow the S02 ordering contract. Subscribe to `/ws/activities` first, then fetch `GET /activities`,
+  de-duplicate by `id`, and re-fetch after a reconnect (close code 1013 means the client was too slow).
 - Reusable components in `frontend/components/` (review card, revision editor, HITL controls, audit table,
   stage timeline). S21 reuses them.
 

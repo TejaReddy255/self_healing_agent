@@ -10,15 +10,16 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.api import activities, health
-from backend.api.errors import install_exception_handlers
+from backend.api.errors import error_response, install_exception_handlers
 from backend.config import ConfigurationError, Settings, load_settings
 from backend.db.health import migrations_check
 from backend.db.migrations import MigrationError, discover
-from backend.db.pool import Database
+from backend.db.pool import Database, DatabaseUnavailableError
 from backend.db.settings import DatabaseSettings, load_database_settings
 from backend.observability.context import REQUEST_ID_HEADER
 from backend.observability.logging import configure_logging
@@ -29,6 +30,12 @@ from backend.services.activity_service import ActivityBroadcaster, ActivityServi
 from backend.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
+
+
+async def _database_unavailable(_: Request, exc: Exception) -> JSONResponse:
+    # Expected operational condition (DB down/restarting): no stack trace per request.
+    logger.warning("database unavailable", extra={"reason": str(exc)})
+    return error_response(503, "DATABASE_UNAVAILABLE", "The database is currently unavailable.")
 
 
 def create_app(
@@ -101,6 +108,7 @@ def create_app(
     app.state.activity_service = activity_service
 
     install_exception_handlers(app)
+    app.add_exception_handler(DatabaseUnavailableError, _database_unavailable)
     app.include_router(health.router)
     app.include_router(activities.router)
 

@@ -200,3 +200,54 @@ async def test_concurrent_runners_apply_each_migration_once(
     applied_by_runner = sorted(len(r) for r in results)
     assert applied_by_runner == [0, 2], "one runner applies everything, the other finds nothing"
     assert applied is not None and [a.version for a in applied] == [1, 2]
+
+
+@pytest.mark.spec("S02-AC3")
+def test_migrations_ignore_the_api_statement_timeout(
+    empty_db: DatabaseSettings, tmp_path: Path
+) -> None:
+    # The API profile would cancel this after 100 ms; the migration profile has no limit.
+    migrations = write_migrations(tmp_path / "m", {"0001_slow.sql": "SELECT pg_sleep(0.5);"})
+    settings = empty_db.model_copy(update={"pg_statement_timeout_ms": 100})
+    assert cli.main(["up", "--dir", str(migrations)], settings=settings) == 0
+
+
+@pytest.mark.spec("S02-AC3")
+async def test_waiting_runner_is_not_limited_by_the_ddl_lock_timeout(
+    empty_db: DatabaseSettings, tmp_path: Path
+) -> None:
+    migrations = write_migrations(
+        tmp_path / "m", {"0001_slow.sql": "CREATE TABLE a (id int); SELECT pg_sleep(0.6);"}
+    )
+    settings = empty_db.model_copy(update={"pg_migration_lock_timeout_ms": 100})
+    files = discover(migrations)
+
+    async def runner() -> int:
+        import asyncpg
+
+        conn = await asyncpg.connect(**settings.migration_connect_kwargs())
+        try:
+            return len(await migrate_up(conn, files))
+        finally:
+            await conn.close()
+
+    # The second runner waits ~0.6 s for the advisory lock, well past the 100 ms lock_timeout.
+    results = await asyncio.gather(runner(), runner())
+    assert sorted(results) == [0, 1]
+
+
+@pytest.mark.spec("S02-AC1")
+def test_out_of_order_migration_is_rejected(
+    empty_db: DatabaseSettings, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    migrations = write_migrations(
+        tmp_path / "m",
+        {"0001_a.sql": "CREATE TABLE a (id int);", "0003_c.sql": "CREATE TABLE c (id int);"},
+    )
+    assert cli.main(["up", "--dir", str(migrations)], settings=empty_db) == 0
+    write_migrations(migrations, {"0002_b.sql": "CREATE TABLE b (id int);"})
+    capsys.readouterr()
+    assert cli.main(["up", "--dir", str(migrations)], settings=empty_db) == 1
+    assert "numbered below the highest applied" in capsys.readouterr().err
+    assert cli.main(["status", "--dir", str(migrations)], settings=empty_db) == 1
+    assert "OUT-OF-ORDER  0002  b" in capsys.readouterr().out

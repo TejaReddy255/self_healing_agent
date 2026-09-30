@@ -53,12 +53,19 @@ API instance in v1; noted in S23).
 
 ## Public contracts
 - `AuditEvent` model (fields mirror the table; `input/output/details: dict[str, Any] | None`).
-- `AuditService.record(event) -> int`; `ActivityService.publish(type, details, **ids) -> Activity`.
-- `GET /activities` → `list[Activity]`, `limit` 1..500 (default 50).
+- `AuditService.record(event, *, conn=None) -> int` (pass `conn` to write inside the caller's transaction);
+  `ActivityService.publish(type, details, **ids) -> Activity`.
+- `GET /activities` → `list[Activity]`, `limit` 1..500 (default 50). 503 `DATABASE_UNAVAILABLE` when the
+  database is not configured **or unreachable**.
 
 ## Persistence and migrations
-One migration: `operation_audit`, `activities`, `agent_performance` (seed row id=1).
-Correlation-ID columns are nullable and have no FK (FKs are added in S15 when the targets exist).
+- `0001_audit_activity_performance`: `operation_audit`, `activities`, `agent_performance` (seed row id=1).
+- `0002_audit_append_only_and_indexes` (review follow-up): server-stamped `recorded_at`; `operation_audit`
+  is append-only via triggers (UPDATE/TRUNCATE rejected; DELETE only when `recorded_at` is older than 13
+  months); correlation indexes are partial `(id, occurred_at) WHERE id IS NOT NULL`.
+- Correlation-ID columns are nullable and have no FK. **No FKs will be added on `operation_audit`** (it must
+  record events for entities whose creation rolled back, and FKs would conflict with the append-only
+  triggers). S15 adds FKs on the other tables only.
 
 ## Configuration
 `PG_*`, `PG_POOL_MAX=10`, `PG_STATEMENT_TIMEOUT_MS=30000`, `AUDIT_MAX_PAYLOAD_BYTES=65536`. There is no
@@ -77,12 +84,21 @@ dev/test, without it persistence is disabled and `/activities` returns 503 `DATA
   queued item (queue of 100) instead of blocking.
 - The migration CLI takes `--dir` (used by tests and later by the S26 DQ service). Connection settings
   come only from `PG_*` variables, never from command-line arguments.
+- **Migration connections** use their own profile: no statement timeout, `lock_timeout` =
+  `PG_MIGRATION_LOCK_TIMEOUT_MS` (default 5 s) for DDL. The runner-vs-runner advisory lock wait is
+  unbounded. Out-of-order pending versions (below the highest applied) are rejected.
+- **Audit payloads are JSONB-safe:** NaN/±Infinity are stored as strings and NUL characters are stripped
+  (payloads and text columns). `occurred_at` must be timezone-aware and not more than 5 minutes in the future.
+- **Activity feed ordering contract (for S12/S21):** delivery order can differ from id order under
+  concurrent publishes. There is no replay from an id. A client must **subscribe to the WebSocket first, then
+  fetch `GET /activities`, and de-duplicate by `id`**. A slow client can miss items (drop-oldest); a client
+  that cannot receive for 10 s is closed with code 1013 and should reconnect and re-fetch.
 
 ## Acceptance criteria
 - **S02-AC1** `migrate up` on an empty DB applies all migrations. A second run is a no-op. `status` lists applied and pending migrations.
 - **S02-AC2** If an already-applied migration file is modified, `up` and `verify` fail with a checksum error and apply nothing.
 - **S02-AC3** Two concurrent `migrate up` processes result in each migration applied exactly once.
-- **S02-AC4** API startup executes no DDL (asserted by comparing `pg_catalog` before and after startup). `/health/ready` reports `db` and `migrations` component status and returns 503 when the DB is down or migrations are pending.
+- **S02-AC4** API startup executes no DDL (asserted by a PostgreSQL event trigger that records every DDL command during startup and readiness checks). `/health/ready` reports `db` and `migrations` component status and returns 503 when the DB is down or migrations are pending.
 - **S02-AC5** `AuditService.record` persists all correlation columns, redacts sensitive keys, and truncates oversized payloads with a marker.
 - **S02-AC6** A WebSocket subscriber receives a newly published activity within 2 s. A disconnected client does not break publishing.
 - **S02-AC7** `GET /activities` enforces the limit bounds and keyset pagination. A viewer can call it; an unauthenticated caller gets 401.
@@ -91,7 +107,7 @@ dev/test, without it persistence is disabled and `/activities` returns 503 `DATA
 ## Test plan
 | AC | Layer | Test(s) |
 |---|---|---|
-| AC1–AC3 | integration | `tests/integration/db/test_migrate.py` |
+| AC1–AC3 | unit + integration | `tests/unit/test_migration_files.py`, `tests/integration/test_migrate.py` |
 | AC4 | integration | `tests/integration/test_startup_no_ddl.py` |
 | AC5 | unit + integration | `tests/unit/test_audit_redaction.py`, `tests/integration/test_audit_repo.py` |
 | AC6, AC7 | integration | `tests/integration/test_activities.py` |
@@ -107,7 +123,16 @@ The audit table is a data-leak surface: redaction must be applied in the service
 Drop the created tables in a new down-migration only in non-prod. In prod: revert code; tables are additive.
 
 ## Open issues
-—
+Deferred from the S02 reviews (recorded in the target specs):
+- **S15:** add no FK on `operation_audit`; put `ADD CONSTRAINT … NOT VALID` and `VALIDATE CONSTRAINT` in
+  **separate** migration files (the runner wraps each file in one transaction); index `activities.incident_id`.
+- **S26:** migration tracking per schema (`--schema`, schema-qualified tracking table) before the DQ service
+  runs its own migrations against the same database.
+- **S25:** partitioning trigger for `operation_audit` (e.g. more than ~50M rows or a purge window over 5 min);
+  activities retention period; a `-- migrate:no-transaction` directive for `CREATE INDEX CONCURRENTLY`;
+  separate owner and runtime DB roles (a trigger does not stop a superuser).
+- **S23:** cross-process activity fan-out (LISTEN/NOTIFY).
+- **Later:** CHECK constraints for `phase`/`status` once the vocabulary settles (S03/S10).
 
 ## Verification evidence
 Run on 2026-09-30, Windows 11 (Smart App Control enforcing), Python 3.12.10, Docker 29.8.1, PostgreSQL
@@ -118,11 +143,16 @@ Run on 2026-09-30, Windows 11 (Smart App Control enforcing), Python 3.12.10, Doc
 | Lint / format / types | `ruff check .`, `ruff format --check .`, `mypy backend frontend tools` | PASS | strict mypy: no issues in 47 source files |
 | Unit tests | `uv run pytest -m "not integration and not e2e and not live"` | PASS | 100 passed (S01 suite + S02 unit: payload redaction/truncation, broadcaster, prod requires DB) |
 | Integration tests | `uv run pytest -m integration` (real Postgres) | PASS | 31 passed in ~10 s; each test gets its own throwaway database; 0 leftover `sh_test_*` databases |
-| Full suite | `uv run pytest` | PASS | 131+ passed |
+| Full suite (first pass) | `uv run pytest` | PASS | 133 passed |
 | Traceability | `uv run python tools/trace.py --strict` | PASS | S02-AC1…AC8 each covered by ≥ 1 test |
 | Migration CLI | `python -m backend.db.migrate status → up → verify → up → status` on the dev DB | PASS | `not initialised / pending 0001` → `applied 0001_audit_activity_performance` → `ok: 1 applied, 0 pending, no drift` → `nothing to apply` → `applied 0001 … <timestamp>` |
 | Real server + WebSocket | scratch script: uvicorn.Server on :8767 + `websockets` client, default `ProactorEventLoop` | PASS | `/health/ready` 200 with `db: ok`, `migrations: ok (1 applied)`; WS subprotocol `bearer`; published activity received in 11 ms; `/activities` returned it; WS without a token rejected with HTTP 403 |
 | No DDL at startup | catalog snapshot before/after app start on an empty DB | PASS | identical `(0, '')` snapshot; readiness 503 `migrations: not initialised` (`test_startup_no_ddl.py`) |
+| Code review | `code-reviewer` agent on 09ec309 | PASS (no High) | 3 Medium + 7 Low. Fixed: DB-down `/activities` now 503 `DATABASE_UNAVAILABLE` without traceback; migrations use their own timeout profile (no statement timeout, 5 s DDL lock timeout, unbounded runner wait); no-DDL check replaced by an event trigger that records any DDL (with a self-test); WS handler cancels its helper tasks, sends time out after 10 s (close 1013), narrower exceptions; lock taken before `try`, unlock errors cannot mask failures; out-of-order versions rejected; BOM-tolerant checksums plus `.gitattributes`; `occurred_at` must be timezone-aware; more env isolation. Documented: activity ordering contract. Deferred: `--schema` to S26 |
+| Data-engineer review | `data-engineer` agent on 09ec309 | PASS after fix (1 High) | H1 fixed: NaN/Infinity/NUL no longer break audit writes (unit and integration tests). M1 `record(conn=...)`; M2 as above; M3 append-only triggers plus server-stamped `recorded_at` (also back-dating-proof on INSERT); M5 partial composite indexes; L2, L7 fixed; M4, L1, L3–L6, L8 recorded in S15/S25/S26 and Open issues |
+| Re-run after fixes | lint, format, mypy, `pytest` (unit + integration), trace | PASS | 149 passed in ~21 s; mypy strict clean; `trace.py --strict` OK |
+| Dev DB upgrade | `python -m backend.db.migrate status → up → verify` | PASS | `pending 0002` → `applied 0002_audit_append_only_and_indexes` → `ok: 2 applied, 0 pending, no drift`; 4 audit triggers present |
+| Runtime after fixes | real uvicorn + websockets check | PASS | readiness `migrations: ok (2 applied)`; WS delivery 23 ms; no-token WS rejected with 403 |
 | CI integration job | `.github/workflows/ci.yml` job `integration` (postgres:16.4 service, `REQUIRE_INTEGRATION_DB=1`) | NOT VERIFIED (remote) | Workflow structure asserted by `tests/unit/test_ci_workflow.py`. No GitHub remote yet |
 
 ## Changelog
@@ -131,3 +161,4 @@ Run on 2026-09-30, Windows 11 (Smart App Control enforcing), Python 3.12.10, Doc
   amended; product owner decision after Windows Smart App Control blocked psycopg's bundled DLL). Dev DB host
   port 55432. Latent S01 issue fixed along the way: an empty `API_TOKENS_FILE=` / `API_TOKENS=` now means
   "not set" (previously became the path `.`), with unit tests. CI gained an `integration` job. IN_REVIEW.
+- 2026-09-30 — review fixes applied (code-reviewer and data-engineer): migration 0002, NaN/NUL-safe audit, `record(conn=)`, migration timeout profile, 503 on DB down, event-trigger no-DDL test, WS hardening. AC4 wording updated to the event-trigger method. Deferred items recorded in S15/S25/S26. Awaiting human acceptance.

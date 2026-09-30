@@ -10,30 +10,35 @@ from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from backend.config import Settings
+from backend.db.migrations import discover
 from backend.db.settings import DEFAULT_MIGRATIONS_DIR, DatabaseSettings
 from tests.conftest import auth
 from tests.integration.conftest import connect
 
 pytestmark = [pytest.mark.integration, pytest.mark.spec("S02-AC4")]
 
-# Every relation (table, index, sequence, view...) outside the system schemas.
-SNAPSHOT_SQL = """
-SELECT count(*) AS relations,
-       coalesce(md5(string_agg(n.nspname || '.' || c.relname || ':' || c.relkind::text, ','
-                               ORDER BY n.nspname, c.relname)), '') AS digest
-FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-  AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
+# An event trigger fires for every DDL command (CREATE/ALTER/DROP/COMMENT/GRANT...) in the
+# database, so any schema change the app makes is recorded, not just new relations.
+# Event triggers require a superuser; the dev and CI Postgres containers run tests as one.
+DDL_RECORDER = """
+CREATE TABLE ddl_log (id serial PRIMARY KEY, tag text NOT NULL, app text);
+CREATE FUNCTION record_ddl() RETURNS event_trigger LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO ddl_log (tag, app) VALUES (tg_tag, current_setting('application_name'));
+END;
+$$;
+CREATE EVENT TRIGGER record_all_ddl ON ddl_command_start EXECUTE FUNCTION record_ddl();
 """
 
 
-def catalog_snapshot(settings: DatabaseSettings) -> tuple[int, str]:
-    async def run() -> tuple[int, str]:
+def run_sql(settings: DatabaseSettings, sql: str) -> list[dict[str, object]]:
+    async def run() -> list[dict[str, object]]:
         conn = await connect(settings)
         try:
-            row = await conn.fetchrow(SNAPSHOT_SQL)
-            assert row is not None
-            return int(row["relations"]), str(row["digest"])
+            if sql.lstrip().upper().startswith("SELECT"):
+                return [dict(r) for r in await conn.fetch(sql)]
+            await conn.execute(sql)
+            return []
         finally:
             await conn.close()
 
@@ -46,14 +51,17 @@ def readiness(settings: Settings, db: DatabaseSettings) -> tuple[int, dict[str, 
     return response.status_code, response.json()
 
 
-def test_startup_runs_no_ddl_and_reports_uninitialised_schema(
+def recorded_ddl(db: DatabaseSettings) -> list[dict[str, object]]:
+    return run_sql(db, "SELECT tag, app FROM ddl_log ORDER BY id")
+
+
+def test_startup_runs_no_ddl_on_an_empty_database(
     empty_db: DatabaseSettings, make_settings: Callable[..., Settings]
 ) -> None:
-    before = catalog_snapshot(empty_db)
+    run_sql(empty_db, DDL_RECORDER)
     status, body = readiness(make_settings(), empty_db)
-    after = catalog_snapshot(empty_db)
 
-    assert before == after == (0, ""), (
+    assert recorded_ddl(empty_db) == [], (
         "the app must not create anything, not even schema_migrations"
     )
     assert status == 503
@@ -69,12 +77,21 @@ def test_startup_runs_no_ddl_and_reports_uninitialised_schema(
 def test_ready_when_all_migrations_applied(
     migrated_db: DatabaseSettings, make_settings: Callable[..., Settings]
 ) -> None:
-    before = catalog_snapshot(migrated_db)
+    run_sql(migrated_db, DDL_RECORDER)
     status, body = readiness(make_settings(), migrated_db)
-    assert catalog_snapshot(migrated_db) == before
+
+    assert recorded_ddl(migrated_db) == []
     assert status == 200
     assert body["status"] == "ok"
-    assert body["components"]["migrations"] == {"status": "ok", "detail": "1 applied"}
+    expected = f"{len(discover(DEFAULT_MIGRATIONS_DIR))} applied"
+    assert body["components"]["migrations"] == {"status": "ok", "detail": expected}
+
+
+def test_recorder_really_detects_ddl(empty_db: DatabaseSettings) -> None:
+    """Guards the guard: prove the event trigger records a column addition."""
+    run_sql(empty_db, DDL_RECORDER)
+    run_sql(empty_db, "ALTER TABLE ddl_log ADD COLUMN extra int")
+    assert [row["tag"] for row in recorded_ddl(empty_db)] == ["ALTER TABLE"]
 
 
 def test_pending_migration_makes_service_not_ready(
@@ -82,7 +99,10 @@ def test_pending_migration_makes_service_not_ready(
 ) -> None:
     migrations = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, migrations)
-    (migrations / "0002_future.sql").write_text("CREATE TABLE future (id int);", encoding="utf-8")
+    next_version = max(m.version for m in discover(DEFAULT_MIGRATIONS_DIR)) + 1
+    (migrations / f"{next_version:04d}_future.sql").write_text(
+        "CREATE TABLE future (id int);", encoding="utf-8"
+    )
     status, body = readiness(
         make_settings(), migrated_db.model_copy(update={"migrations_dir": migrations})
     )

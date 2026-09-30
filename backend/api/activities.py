@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 WS_POLICY_VIOLATION = 1008
+WS_TRY_AGAIN_LATER = 1013
+# A subscriber that cannot take a message within this time is disconnected.
+SEND_TIMEOUT_S = 10.0
 BEARER_SUBPROTOCOL = "bearer"
 
 
@@ -85,6 +88,7 @@ async def activities_feed(websocket: WebSocket) -> None:
 
     with broadcaster.subscribe() as queue:
         disconnected = asyncio.create_task(_wait_for_disconnect(websocket))
+        next_item: asyncio.Task[Activity] | None = None
         try:
             while True:
                 next_item = asyncio.create_task(queue.get())
@@ -92,12 +96,28 @@ async def activities_feed(websocket: WebSocket) -> None:
                     {next_item, disconnected}, return_when=asyncio.FIRST_COMPLETED
                 )
                 if disconnected in done:
-                    next_item.cancel()
                     return
-                await websocket.send_json(next_item.result().model_dump(mode="json"))
-        except (WebSocketDisconnect, RuntimeError):
+                payload = next_item.result().model_dump(mode="json")
+                try:
+                    await asyncio.wait_for(websocket.send_json(payload), timeout=SEND_TIMEOUT_S)
+                except TimeoutError:
+                    logger.warning(
+                        "activity subscriber stalled; closing", extra={"subject": actor.subject}
+                    )
+                    with contextlib.suppress(WebSocketDisconnect, OSError, RuntimeError):
+                        await websocket.close(code=WS_TRY_AGAIN_LATER)
+                    return
+                except RuntimeError:
+                    # Starlette raises RuntimeError when sending after the socket closed.
+                    return
+        except (WebSocketDisconnect, OSError):
             logger.info("activity subscriber disconnected", extra={"subject": actor.subject})
         finally:
-            disconnected.cancel()
-            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect, RuntimeError):
+            # Cancel both helper tasks even when this handler itself is cancelled.
+            for task in (next_item, disconnected):
+                if task is not None and not task.done():
+                    task.cancel()
+            with contextlib.suppress(
+                asyncio.CancelledError, WebSocketDisconnect, OSError, RuntimeError
+            ):
                 await disconnected

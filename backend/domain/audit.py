@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 PerformanceCounter = Literal[
     "completed_analyses", "tool_executions", "issues_detected", "total_activities"
@@ -40,7 +40,8 @@ class AuditEvent(BaseModel):
     input: dict[str, Any] | None = None
     output: dict[str, Any] | None = None
     details: dict[str, Any] | None = None
-    occurred_at: datetime | None = None
+    # Timezone-aware only: a naive datetime would be interpreted in the host's local zone.
+    occurred_at: AwareDatetime | None = None
 
 
 class Activity(BaseModel):

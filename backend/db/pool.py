@@ -25,15 +25,24 @@ logger = logging.getLogger(__name__)
 type Connection = asyncpg.Connection[asyncpg.Record] | PoolConnectionProxy[asyncpg.Record]
 
 
+def _encode_json(value: object) -> str:
+    # PostgreSQL JSON rejects NaN/Infinity: fail here with a clear error instead of in the server.
+    return json.dumps(value, allow_nan=False)
+
+
 async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
     for type_name in ("json", "jsonb"):
         await conn.set_type_codec(
-            type_name, encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+            type_name, encoder=_encode_json, decoder=json.loads, schema="pg_catalog"
         )
 
 
 class DatabaseUnavailableError(RuntimeError):
-    """The pool is not open or the database cannot be reached."""
+    """The pool is not open or the database cannot be reached (maps to HTTP 503)."""
+
+
+# Failures while *obtaining* a connection: server down, refused, auth, starting up, pool closed.
+_ACQUIRE_ERRORS = (OSError, TimeoutError, asyncpg.InterfaceError, asyncpg.PostgresError)
 
 
 class Database:
@@ -67,10 +76,21 @@ class Database:
 
     @asynccontextmanager
     async def connection(self) -> AsyncIterator[Connection]:
-        if self._pool is None:
+        """Borrow a pooled connection. Failures to *obtain* one become DatabaseUnavailableError;
+        errors raised by the caller's queries propagate unchanged."""
+        pool = self._pool
+        if pool is None:
             raise DatabaseUnavailableError("database pool is not open")
-        async with self._pool.acquire(timeout=self.settings.pg_acquire_timeout_s) as conn:
+        try:
+            conn = await pool.acquire(timeout=self.settings.pg_acquire_timeout_s)
+        except _ACQUIRE_ERRORS as exc:
+            raise DatabaseUnavailableError(
+                f"cannot obtain a database connection: {type(exc).__name__}"
+            ) from exc
+        try:
             yield conn
+        finally:
+            await pool.release(conn)
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[Connection]:
@@ -82,6 +102,9 @@ class Database:
         try:
             async with self.connection() as conn:
                 await conn.fetchval("SELECT 1")
-        except (OSError, asyncpg.PostgresError, DatabaseUnavailableError, TimeoutError) as exc:
+        except DatabaseUnavailableError as exc:
+            cause = type(exc.__cause__).__name__ if exc.__cause__ else "PoolClosed"
+            return ComponentStatus(status="down", detail=f"unreachable: {cause}")
+        except (OSError, asyncpg.PostgresError, TimeoutError) as exc:
             return ComponentStatus(status="down", detail=f"unreachable: {type(exc).__name__}")
         return ComponentStatus(status="ok")

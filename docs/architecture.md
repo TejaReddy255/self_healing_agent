@@ -258,7 +258,7 @@ Operational PostgreSQL. SQL only in `backend/repositories/`. Migrations follow A
 | Table(s) | Slice | Notes |
 |---|---|---|
 | `schema_migrations` | S02 | version, name, checksum, applied_at |
-| `operation_audit`, `activities`, `agent_performance` | S02 | Audit has nullable `analysis_id`, `review_id`, `job_id`, `incident_id`, `pipeline_id`, `dag_id`, `run_id`. FKs added when the targets exist. |
+| `operation_audit`, `activities`, `agent_performance` | S02 | Audit has nullable `analysis_id`, `review_id`, `job_id`, `incident_id`, `pipeline_id`, `dag_id`, `run_id` and a server-stamped `recorded_at`. **Audit is append-only** (triggers; DELETE only after 13 months) and gets **no FKs**. Activities get an `incident_id` FK in S15. |
 | `analyses` | S09 | Partial unique index on scope where `status='RUNNING'` |
 | `remediation_reviews`, `remediation_review_revisions`, `review_revision_jobs`, `approved_sops` | S10 | Partial unique index for active scope (PENDING/APPROVED/EXECUTING). Revisions are insert-only (trigger blocks UPDATE/DELETE). |
 | `remediation_jobs` | S11 | Unique `(review_id, revision)`. Lease columns. |
@@ -270,7 +270,7 @@ Operational PostgreSQL. SQL only in `backend/repositories/`. Migrations follow A
 | `verification_results` | S19 | Per assertion/rule, per job stage |
 | `recovery_runs` | S20 | original/recovery run IDs, final DQ status |
 | `dq_baselines` | S18 | Accepted baseline job per pipeline/dataset/agent |
-| schema `dq_service`: `files`, `file_versions`, `jobs`, `job_results`, `artifacts`, `models`, `model_versions`, `presets` | S26, S27 | Owned by the DQ service. Separate migration directory run by the same runner (`--dir dq_service/migrations --schema dq_service`). The backend never queries it. |
+| schema `dq_service`: `files`, `file_versions`, `jobs`, `job_results`, `artifacts`, `models`, `model_versions`, `presets` | S26, S27 | Owned by the DQ service. Separate migration directory run by the same runner, extended in S26 with `--schema dq_service` and a per-schema tracking table. The backend never queries it. |
 
 **Retention:** per use-case-spec §7, implemented as a scheduled purge job in S25.
 

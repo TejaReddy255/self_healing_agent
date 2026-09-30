@@ -1,0 +1,5 @@
+# Normalise line endings in the repository; Windows checkouts may use CRLF in the working tree.
+* text=auto
+# Migrations and shell scripts must stay LF everywhere (checksums, container entrypoints).
+*.sql text eol=lf
+*.sh  text eol=lf

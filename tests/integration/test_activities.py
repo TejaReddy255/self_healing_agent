@@ -151,3 +151,17 @@ def test_websocket_rejects_unauthorised(client: TestClient, headers: dict[str, s
     ):
         pass
     assert closed.value.code == 1008
+
+
+@pytest.mark.spec("S02-AC7")
+def test_database_down_returns_503_without_traceback(
+    base_db_settings: DatabaseSettings,
+    make_settings: Callable[..., Settings],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    unreachable = base_db_settings.model_copy(update={"pg_port": 1, "pg_connect_timeout_s": 2.0})
+    with TestClient(create_app(make_settings(), db_settings=unreachable)) as test_client:
+        response = test_client.get("/activities", headers=auth("viewer"))
+    assert response.status_code == 503
+    assert response.json()["error_code"] == "DATABASE_UNAVAILABLE"
+    assert not [r for r in caplog.records if r.levelname == "ERROR"], "no error-level traceback"

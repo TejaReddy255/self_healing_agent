@@ -36,6 +36,9 @@ class DatabaseSettings(BaseSettings):
     pg_statement_timeout_ms: int = Field(default=30_000, ge=100, le=3_600_000)
     pg_connect_timeout_s: float = Field(default=5.0, gt=0, le=60)
     pg_acquire_timeout_s: float = Field(default=5.0, gt=0, le=60)
+    # Migrations: DDL waits at most this long for table locks so it cannot stall app traffic
+    # behind a long transaction; the runner-vs-runner advisory lock wait is unbounded.
+    pg_migration_lock_timeout_ms: int = Field(default=5_000, ge=0, le=600_000)
     migrations_dir: Path = DEFAULT_MIGRATIONS_DIR
 
     @property
@@ -47,7 +50,7 @@ class DatabaseSettings(BaseSettings):
         return f"{self.pg_user}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
 
     def connect_kwargs(self, *, application_name: str = "self-healing") -> dict[str, Any]:
-        """Keyword arguments for ``asyncpg.connect`` / ``asyncpg.create_pool``."""
+        """Keyword arguments for ``asyncpg.connect`` / ``asyncpg.create_pool`` (API profile)."""
         return {
             "host": self.pg_host,
             "port": self.pg_port,
@@ -61,6 +64,18 @@ class DatabaseSettings(BaseSettings):
                 "application_name": application_name,
             },
         }
+
+    def migration_connect_kwargs(self) -> dict[str, Any]:
+        """Migration profile: no statement timeout (index builds and constraint validation may
+        run long) but a lock timeout so DDL never queues indefinitely behind app transactions."""
+        kwargs = self.connect_kwargs(application_name="migrate")
+        kwargs["command_timeout"] = None
+        kwargs["server_settings"] = {
+            "application_name": "migrate",
+            "statement_timeout": "0",
+            "lock_timeout": str(self.pg_migration_lock_timeout_ms),
+        }
+        return kwargs
 
 
 def load_database_settings() -> DatabaseSettings:

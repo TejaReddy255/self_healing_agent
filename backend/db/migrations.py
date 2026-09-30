@@ -21,7 +21,7 @@ from backend.db.pool import Connection
 logger = logging.getLogger(__name__)
 
 MIGRATION_FILE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
-# Arbitrary constant key for pg_advisory_lock; serialises concurrent runners cluster-wide.
+# Arbitrary constant key for pg_advisory_lock; serialises concurrent runners on one database.
 ADVISORY_LOCK_KEY = 0x5E1F_4EA1_0000_0001
 
 SCHEMA_MIGRATIONS_DDL = """
@@ -66,10 +66,13 @@ class MigrationState:
     pending: list[MigrationFile] = field(default_factory=list)
     drifted: list[int] = field(default_factory=list)
     missing_files: list[int] = field(default_factory=list)
+    # Pending versions lower than the highest applied one (e.g. after a branch merge). Numbers
+    # are assigned at merge time (sdd-workflow §7), so this indicates a numbering mistake.
+    out_of_order: list[int] = field(default_factory=list)
 
     @property
     def consistent(self) -> bool:
-        return not self.drifted and not self.missing_files
+        return not self.drifted and not self.missing_files and not self.out_of_order
 
     @property
     def up_to_date(self) -> bool:
@@ -94,7 +97,8 @@ def discover(directory: Path) -> list[MigrationFile]:
         version = int(match.group(1))
         if version in files:
             raise MigrationError(f"duplicate migration version {version:04d}: {path.name}")
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig drops a BOM that Windows editors may add; it must not reach the checksum or SQL.
+        text = path.read_text(encoding="utf-8-sig")
         files[version] = MigrationFile(version, match.group(2), path, checksum(text), text)
     return [files[v] for v in sorted(files)]
 
@@ -115,10 +119,13 @@ def compare(files: list[MigrationFile], applied: list[AppliedMigration] | None) 
         return MigrationState(initialised=False, pending=list(files))
     by_version = {f.version: f for f in files}
     applied_versions = {a.version for a in applied}
+    pending = [f for f in files if f.version not in applied_versions]
+    highest_applied = max(applied_versions, default=0)
     return MigrationState(
         initialised=True,
         applied=list(applied),
-        pending=[f for f in files if f.version not in applied_versions],
+        pending=pending,
+        out_of_order=[f.version for f in pending if f.version < highest_applied],
         drifted=[
             a.version
             for a in applied
@@ -143,6 +150,12 @@ def _raise_if_inconsistent(state: MigrationState) -> None:
     if state.missing_files:
         versions = ", ".join(f"{v:04d}" for v in state.missing_files)
         problems.append(f"applied migration(s) {versions} have no file in the migrations directory")
+    if state.out_of_order:
+        versions = ", ".join(f"{v:04d}" for v in state.out_of_order)
+        problems.append(
+            f"pending migration(s) {versions} are numbered below the highest applied version; "
+            "renumber them after the latest migration"
+        )
     if problems:
         raise MigrationError("; ".join(problems))
 
@@ -152,10 +165,14 @@ async def migrate_up(conn: Connection, files: list[MigrationFile]) -> list[Migra
 
     ``conn`` must be a dedicated connection (the session-level lock is held on it). Returns the
     migrations applied by this call; concurrent runners wait for the lock and then find nothing
-    pending.
+    pending. The wait for another runner is unbounded (``lock_timeout`` is lifted for it); the
+    session's own ``lock_timeout`` then applies again to the migrations' DDL.
     """
+    ddl_lock_timeout = await conn.fetchval("SELECT current_setting('lock_timeout')")
+    await conn.execute("SELECT set_config('lock_timeout', '0', false)")
     await conn.execute("SELECT pg_advisory_lock($1)", ADVISORY_LOCK_KEY)
     try:
+        await conn.execute("SELECT set_config('lock_timeout', $1, false)", ddl_lock_timeout)
         await conn.execute(SCHEMA_MIGRATIONS_DDL)
         state = await inspect(conn, files)
         _raise_if_inconsistent(state)
@@ -177,7 +194,12 @@ async def migrate_up(conn: Connection, files: list[MigrationFile]) -> list[Migra
             applied.append(migration)
         return applied
     finally:
-        await conn.execute("SELECT pg_advisory_unlock($1)", ADVISORY_LOCK_KEY)
+        # Never let an unlock failure (e.g. the connection dropped) mask the real error; the
+        # server releases session-level advisory locks when the connection closes anyway.
+        try:
+            await conn.execute("SELECT pg_advisory_unlock($1)", ADVISORY_LOCK_KEY)
+        except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError):
+            logger.warning("could not release the migration advisory lock explicitly")
 
 
 async def verify(conn: Connection, files: list[MigrationFile]) -> MigrationState:

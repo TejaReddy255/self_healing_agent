@@ -36,12 +36,14 @@ def _render_state(state: MigrationState) -> list[str]:
         marker = "DRIFT  " if a.version in state.drifted else "applied"
         suffix = " (file missing)" if a.version in state.missing_files else ""
         lines.append(f"{marker}  {a.version:04d}  {a.name}  {a.applied_at.isoformat()}{suffix}")
-    lines.extend(f"pending  {m.version:04d}  {m.name}" for m in state.pending)
+    for m in state.pending:
+        marker = "OUT-OF-ORDER" if m.version in state.out_of_order else "pending"
+        lines.append(f"{marker}  {m.version:04d}  {m.name}")
     return lines
 
 
 async def run(command: str, settings: DatabaseSettings, files: list[MigrationFile]) -> int:
-    conn = await asyncpg.connect(**settings.connect_kwargs(application_name="migrate"))
+    conn = await asyncpg.connect(**settings.migration_connect_kwargs())
     try:
         if command == "up":
             applied = await migrate_up(conn, files)
