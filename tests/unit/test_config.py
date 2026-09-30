@@ -82,6 +82,23 @@ def test_version_comes_from_package_metadata() -> None:
     assert Settings(_env_file=None, env="dev").version == version("self-healing-agents")
 
 
+def test_empty_token_settings_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setenv("API_TOKENS_FILE", "")
+    monkeypatch.setenv("API_TOKENS", "  ")
+    settings = load_settings()
+    assert settings.api_tokens_file is None
+    assert settings.api_tokens is None
+
+
+def test_empty_token_settings_do_not_satisfy_prod(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("API_TOKENS_FILE", "")
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", '["https://ops.example.com"]')
+    with pytest.raises(ConfigurationError, match="API_TOKENS"):
+        load_settings()
+
+
 def test_dev_allows_no_tokens() -> None:
     settings = Settings(_env_file=None, env="dev")
     assert settings.api_tokens is None

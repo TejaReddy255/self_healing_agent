@@ -27,9 +27,14 @@ enforced transitions and a reference-based timeline.
   where status NOT IN (RESOLVED, REJECTED); `incident_events` (incident_id, monitoring_event_id,
   relation_type TRIGGER|RELATED, attached_at; PK pair); `incident_transitions` (id, incident_id,
   from_status, to_status, actor_subject, actor_role, reason, occurred_at).
-- Add FKs (`NOT VALID` then `VALIDATE`) from `incident_id` on analyses, remediation_reviews,
-  remediation_jobs, operation_audit and activities, **for each of these tables that exists at merge
-  time**. Any slice that later creates one of these tables adds its own FK to `incidents` (parallel-track rule).
+- Add FKs from `incident_id` on analyses, remediation_reviews, remediation_jobs and activities, **for each
+  of these tables that exists at merge time**. Any slice that later creates one of these tables adds its own
+  FK to `incidents` (parallel-track rule). *(Amended after the S02 data-engineer review:)*
+  - **No FK on `operation_audit`.** It must keep events about entities whose creation rolled back, and it is
+    append-only (S02 migration 0002), which conflicts with `ON DELETE` actions and purge ordering.
+  - Put `ADD CONSTRAINT … NOT VALID` and `VALIDATE CONSTRAINT` in **separate migration files**. The runner
+    wraps each file in one transaction, and validation must not hold the long lock with the add.
+  - Add an index on `activities (incident_id)` together with its FK (timeline lookups).
 - `backend/services/incident_service.py`:
   - `create_or_update(event)`: fingerprint `fp_v1 = sha256(pipeline_id|run_id or time_bucket|source|event_type|resource|rule_id or metric)`
     (src §21.6/§24.2). Category mapping from source/event_type. Attach event. Update `last_seen_at`.

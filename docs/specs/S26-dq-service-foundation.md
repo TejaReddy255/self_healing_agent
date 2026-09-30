@@ -43,7 +43,7 @@ Each agent slice then only adds algorithms.
 - `dq_service/`: FastAPI app (`/health`, `/health/ready`, `/v1/agents`, `/v1/jobs` submit/status/result),
   service-token auth, JSON logging with redaction (same rules as S01, re-implemented or vendored — no backend import),
   job queue (claim/lease/heartbeat/reaper; ADR-004 pattern), worker `python -m dq_service.worker`,
-  migrations in `dq_service/migrations/` run with the S02 runner CLI using `--dir` and `--schema dq_service` (extend the S02 runner if needed).
+  migrations in `dq_service/migrations/` run with the S02 runner CLI using `--dir` and a new `--schema dq_service`. **Extend the S02 runner** so each schema has its own schema-qualified tracking table (e.g. `dq_service.schema_migrations`) and `search_path`. Otherwise the DQ service's `0001` collides with the backend's `0001`, and each side reports the other's migrations as missing files (S02 review).
 - A registered no-op `echo` agent used to prove the pipeline end to end.
 - `tests/dq/synthetic.py`: seeded synthetic dataset generator with injected-issue ground truth (nulls, duplicates,
   out-of-range, invalid formats, outliers, distribution shift, anomalies), used by S27–S33 and the E-DQ evals.

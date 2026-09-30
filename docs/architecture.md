@@ -62,7 +62,7 @@ Layout follows src §0.7, §21.14 and §33.2, adjusted for greenfield. **Depende
 | `backend/observability/` | JSON logging, redaction filter, correlation-ID context, metrics | S01, S23 |
 | `backend/security/` | Token auth, roles, `require_role` dependency, route inventory | S01, S23 |
 | `backend/domain/` | Shared Pydantic contracts, enums, transition tables, canonical hashing | S03 |
-| `backend/db/` | Async psycopg pool, transaction helpers, migration runner | S02 |
+| `backend/db/` | Async asyncpg pool, transaction helpers, migration runner and CLI | S02 |
 | `backend/repositories/` | All SQL. One module per aggregate. | S02+ |
 | `backend/services/` | Orchestration: diagnostic, review, revision, remediation, verification, recovery, monitoring, incident, activity, audit | S02+ |
 | `backend/api/` | Thin routers per area; request/response models from `domain` | S01+ |
@@ -258,7 +258,7 @@ Operational PostgreSQL. SQL only in `backend/repositories/`. Migrations follow A
 | Table(s) | Slice | Notes |
 |---|---|---|
 | `schema_migrations` | S02 | version, name, checksum, applied_at |
-| `operation_audit`, `activities`, `agent_performance` | S02 | Audit has nullable `analysis_id`, `review_id`, `job_id`, `incident_id`, `pipeline_id`, `dag_id`, `run_id`. FKs added when the targets exist. |
+| `operation_audit`, `activities`, `agent_performance` | S02 | Audit has nullable `analysis_id`, `review_id`, `job_id`, `incident_id`, `pipeline_id`, `dag_id`, `run_id` and a server-stamped `recorded_at`. **Audit is append-only** (triggers; DELETE only after 13 months) and gets **no FKs**. Activities get an `incident_id` FK in S15. |
 | `analyses` | S09 | Partial unique index on scope where `status='RUNNING'` |
 | `remediation_reviews`, `remediation_review_revisions`, `review_revision_jobs`, `approved_sops` | S10 | Partial unique index for active scope (PENDING/APPROVED/EXECUTING). Revisions are insert-only (trigger blocks UPDATE/DELETE). |
 | `remediation_jobs` | S11 | Unique `(review_id, revision)`. Lease columns. |
@@ -270,7 +270,7 @@ Operational PostgreSQL. SQL only in `backend/repositories/`. Migrations follow A
 | `verification_results` | S19 | Per assertion/rule, per job stage |
 | `recovery_runs` | S20 | original/recovery run IDs, final DQ status |
 | `dq_baselines` | S18 | Accepted baseline job per pipeline/dataset/agent |
-| schema `dq_service`: `files`, `file_versions`, `jobs`, `job_results`, `artifacts`, `models`, `model_versions`, `presets` | S26, S27 | Owned by the DQ service. Separate migration directory run by the same runner (`--dir dq_service/migrations --schema dq_service`). The backend never queries it. |
+| schema `dq_service`: `files`, `file_versions`, `jobs`, `job_results`, `artifacts`, `models`, `model_versions`, `presets` | S26, S27 | Owned by the DQ service. Separate migration directory run by the same runner, extended in S26 with `--schema dq_service` and a per-schema tracking table. The backend never queries it. |
 
 **Retention:** per use-case-spec §7, implemented as a scheduled purge job in S25.
 
@@ -408,12 +408,19 @@ object store.
 target form (see `docs/sdd-workflow.md` §2). *Context:* no existing code. *Consequences:* no
 compatibility shims or dual paths; the source "move first" guidance does not apply. Invariants still bind.
 
-**ADR-002 Technology stack.** Python 3.12, `uv` (lockfile), FastAPI, Pydantic v2, pydantic-settings,
-psycopg 3 (async + pool), httpx, PyYAML (safe_load), Streamlit, LangChain agents with
-`langchain-google-genai` and `langchain-mcp-adapters`, the official `mcp` SDK (FastMCP, streamable HTTP)
-for servers, `sqlglot` for SQL read-only validation. Tests: pytest, pytest-asyncio, respx; lint/type:
-ruff, mypy. *Consequences:* exact versions pinned in S01. LangChain agent APIs are version-sensitive,
-so S08 pins them and wraps them behind `backend/agents/factory.py`.
+**ADR-002 Technology stack** *(amended 2026-09-30: PostgreSQL driver)*. Python 3.12, `uv` (lockfile),
+FastAPI, Pydantic v2, pydantic-settings, **asyncpg** (async driver + pool), httpx, PyYAML (safe_load),
+Streamlit, LangChain agents with `langchain-google-genai` and `langchain-mcp-adapters`, the official
+`mcp` SDK (FastMCP, streamable HTTP) for servers, `sqlglot` for SQL read-only validation. Tests: pytest,
+pytest-asyncio, pytest-timeout, respx; lint/type: ruff, mypy (with `asyncpg-stubs`).
+*Consequences:* exact versions pinned in S01. LangChain agent APIs are version-sensitive, so S08 pins
+them and wraps them behind `backend/agents/factory.py`.
+*Amendment (S02):* psycopg 3 was replaced by asyncpg. On the development machine, Windows Smart App
+Control (enforcing) blocks psycopg-binary's bundled, unsigned libpq DLL, while asyncpg loads normally.
+asyncpg also runs on Windows' default Proactor event loop, which psycopg's async mode cannot, so no
+uvicorn loop workaround is needed. Queries use `$n` placeholders. Repositories accept either a direct
+or a pooled connection (`backend.db.pool.Connection`). *Rejected:* psycopg with the local PostgreSQL
+libpq via PATH (fragile per-shell setup); developing inside WSL/Docker only; disabling Smart App Control.
 
 **ADR-003 Numbered SQL migrations with an in-repo runner.** `migrations/NNNN_name.sql`, table
 `schema_migrations(version, name, checksum, applied_at)`, advisory lock, refuses edited applied

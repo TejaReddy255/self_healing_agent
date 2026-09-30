@@ -27,6 +27,18 @@ def test_ci_runs_the_s01_quality_commands() -> None:
 
 
 @pytest.mark.spec("S01-AC10")
+def test_ci_runs_integration_tests_against_postgres_and_never_skips() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["integration"]
+    assert job["services"]["postgres"]["image"].startswith("postgres:16")
+    assert job["env"]["REQUIRE_INTEGRATION_DB"] == "1"
+    assert [s["run"] for s in job["steps"] if "run" in s] == [
+        "uv sync --locked",
+        "uv run pytest -m integration",
+    ]
+
+
+@pytest.mark.spec("S01-AC10")
 def test_ci_uses_python_312_and_read_only_permissions() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert workflow["permissions"] == {"contents": "read"}

@@ -13,7 +13,7 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, ValidationError, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
 
 Environment = Literal["dev", "test", "prod"]
@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     api_tokens_file: Path | None = None
     api_tokens: SecretStr | None = None
 
+    # Audit rows store bounded payloads; larger input/output/details are truncated with a marker.
+    audit_max_payload_bytes: int = Field(default=65536, ge=1024, le=1_048_576)
+
+    @field_validator("api_tokens_file", "api_tokens", mode="before")
+    @classmethod
+    def _empty_means_unset(cls, value: object) -> object:
+        # "API_TOKENS_FILE=" in a .env file must mean "not set", not the current directory.
+        return None if isinstance(value, str) and not value.strip() else value
+
     @model_validator(mode="after")
     def _validate_environment(self) -> Self:
         if self.env == "prod":
@@ -68,8 +77,14 @@ class Settings(BaseSettings):
 
 def load_settings() -> Settings:
     """Load settings from the environment, converting validation errors to a clear failure."""
+    return load_or_fail(Settings)
+
+
+def load_or_fail[T: BaseSettings](factory: type[T]) -> T:
+    """Instantiate a settings class from the environment; any failure becomes ConfigurationError
+    without echoing input values."""
     try:
-        return Settings()  # ENV comes from the environment / .env
+        return factory()
     except ValidationError as exc:
         details = "; ".join(
             f"{'.'.join(str(p) for p in err['loc']) or 'settings'}: {err['msg']}"

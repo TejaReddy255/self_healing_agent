@@ -26,7 +26,14 @@ Package, deploy, operate and release the platform with evidence. Uses the `produ
   with Kubernetes-compatible liveness/readiness endpoints; secrets via environment files outside git or a secret manager.
 - Migration rollout procedure (`migrate verify` → `up` before deploy; the app refuses readiness while migrations are pending).
 - Backup and restore procedure for the operational DB **and the `dq-storage` volume** (ADR-014), with a restore drill.
-- Retention purge job per use-case-spec §7 (dry-run mode, audited).
+- Retention purge job per use-case-spec §7 (dry-run mode, audited). `operation_audit` purges delete in batches by
+  `id` range; the append-only trigger only allows rows whose `recorded_at` is older than 13 months (S02). Decide the
+  activities retention period (proposed 90 days) and add it to use-case-spec §7.
+- *(From the S02 data-engineer review)* Partitioning trigger for `operation_audit`: past ~50M rows or a purge window
+  over 5 min, move to monthly range partitions on `recorded_at` (table rewrite; PK becomes `(id, recorded_at)`). Decide
+  before GA. Add a `-- migrate:no-transaction` directive to the runner (single-statement files only) when the first
+  `CREATE INDEX CONCURRENTLY` is needed. Separate the schema-owner role from a DML-only runtime role, because
+  triggers do not stop a superuser.
 - Runbooks in `docs/runbooks/`: remediation job `INTERRUPTED_DURING_EXECUTION`, stuck recovery, MCP server down,
   metadata reload failure, Gemini outage/quota, rotating tokens, replaying a failed callback.
 - Alerts: job queue age, remediation failures, verification failure spikes, monitoring cycle overrun, LLM cost budget.

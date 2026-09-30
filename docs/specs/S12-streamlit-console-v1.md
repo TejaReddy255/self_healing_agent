@@ -34,6 +34,8 @@ entirely through FastAPI, including execution-job progress, so that the P2 "base
     portion only), revision-job progress, approve (sends the displayed revision and hash) or reject, revision history, audit.
   - **Execution:** job stage timeline and recovery tracking.
   - **Governance:** performance, LLM costs, analyses history, review/audit summary.
+- Activity feed: follow the S02 ordering contract. Subscribe to `/ws/activities` first, then fetch `GET /activities`,
+  de-duplicate by `id`, and re-fetch after a reconnect (close code 1013 means the client was too slow).
 - Reusable components in `frontend/components/` (review card, revision editor, HITL controls, audit table,
   stage timeline). S21 reuses them.
 
@@ -41,7 +43,7 @@ entirely through FastAPI, including execution-job progress, so that the P2 "base
 Monitoring/incident/DQ/metadata pages (S21).
 
 ## Acceptance criteria
-- **S12-AC1** `frontend/` imports nothing from `backend`, `httpx` Airflow clients, `psycopg` or `mcp`, and uses only `AGENT_BASE_URL` (import-lint test).
+- **S12-AC1** `frontend/` imports nothing from `backend`, `httpx` Airflow clients, `asyncpg` or `mcp`, and uses only `AGENT_BASE_URL` (import-lint test).
 - **S12-AC2** Against a backend on fakes: trigger run → see failure → start RCA → see analysis and review (AppTest flow).
 - **S12-AC3** Approve is disabled while a revision job is PENDING or PROCESSING, and it sends the displayed revision and hash. A 409 shows "Review changed — reload" and does not retry automatically.
 - **S12-AC4** The revision editor rejects invalid JSON client-side and cannot change fields outside the SOP/remediation payload.

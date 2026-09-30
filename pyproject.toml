@@ -5,6 +5,7 @@ description = "Agentic self-healing pipeline monitor: control plane, operator co
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "asyncpg>=0.31.0",
     "fastapi>=0.142.2",
     "httpx>=0.28.1",
     "pydantic>=2.13.5",
@@ -55,9 +56,11 @@ plugins = ["pydantic.mypy"]
 
 [dependency-groups]
 dev = [
+    "asyncpg-stubs>=0.31.3",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-timeout>=2.4.0",
     "pyyaml>=6.0.3",
     "respx>=0.23.1",
     "ruff>=0.16.9",
