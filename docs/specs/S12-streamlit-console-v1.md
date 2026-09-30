@@ -41,7 +41,7 @@ entirely through FastAPI, including execution-job progress, so that the P2 "base
 Monitoring/incident/DQ/metadata pages (S21).
 
 ## Acceptance criteria
-- **S12-AC1** `frontend/` imports nothing from `backend`, `httpx` Airflow clients, `psycopg` or `mcp`, and uses only `AGENT_BASE_URL` (import-lint test).
+- **S12-AC1** `frontend/` imports nothing from `backend`, `httpx` Airflow clients, `asyncpg` or `mcp`, and uses only `AGENT_BASE_URL` (import-lint test).
 - **S12-AC2** Against a backend on fakes: trigger run → see failure → start RCA → see analysis and review (AppTest flow).
 - **S12-AC3** Approve is disabled while a revision job is PENDING or PROCESSING, and it sends the displayed revision and hash. A 409 shows "Review changed — reload" and does not retry automatically.
 - **S12-AC4** The revision editor rejects invalid JSON client-side and cannot change fields outside the SOP/remediation payload.

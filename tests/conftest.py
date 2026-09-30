@@ -11,6 +11,7 @@ from pydantic import SecretStr
 
 from backend.app import create_app
 from backend.config import Settings
+from backend.db.settings import DatabaseSettings
 from backend.security.auth import hash_token
 from frontend.api_client import FrontendSettings
 
@@ -45,6 +46,15 @@ _SETTINGS_ENV_VARS = (
     "AGENT_BASE_URL",
     "AGENT_API_TOKEN",
     "AGENT_HEALTH_TIMEOUT_SECONDS",
+    "AUDIT_MAX_PAYLOAD_BYTES",
+    "PG_HOST",
+    "PG_PORT",
+    "PG_DATABASE",
+    "PG_USER",
+    "PG_PASSWORD",
+    "PG_POOL_MAX",
+    "PG_STATEMENT_TIMEOUT_MS",
+    "MIGRATIONS_DIR",
 )
 
 
@@ -53,8 +63,8 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep developer shells and a local .env file from leaking into tests."""
     for key in _SETTINGS_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setitem(Settings.model_config, "env_file", None)
-    monkeypatch.setitem(FrontendSettings.model_config, "env_file", None)
+    for settings_class in (Settings, DatabaseSettings, FrontendSettings):
+        monkeypatch.setitem(settings_class.model_config, "env_file", None)
 
 
 @pytest.fixture

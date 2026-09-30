@@ -66,7 +66,7 @@ service only through adapters. No imports cross in either direction. The DQ serv
 
 ## Commands
 
-Available now (S01):
+Available now (S01–S02):
 
 ```text
 uv sync                                                    # install (uv.lock is committed)
@@ -74,11 +74,14 @@ uv run ruff check .                                        # lint
 uv run ruff format --check .                               # format check (Markdown excluded)
 uv run mypy backend frontend tools                         # strict type check
 uv run pytest -m "not integration and not e2e and not live"   # unit + contract tests
+uv run pytest -m integration                               # needs the dev Postgres container
 uv run python tools/trace.py --strict                      # spec AC ↔ test traceability
 uv run python tools/new_token.py <subject> <role>          # create an API token entry
+docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d   # Postgres on 127.0.0.1:55432
+uv run python -m backend.db.migrate up|status|verify       # schema migrations (the app never runs DDL)
 uv run uvicorn backend.main:app --reload                   # API on :8000
 uv run streamlit run frontend/app.py                       # operator console on :8501
 ```
 
-Added by later slices: `docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d` (S02),
-`uv run python -m backend.db.migrate up` (S02).
+Database access uses **asyncpg** (ADR-002 amended). psycopg's bundled DLL is blocked by Windows Smart App
+Control on the development machine, so don't reintroduce it. SQL uses `$n` placeholders.

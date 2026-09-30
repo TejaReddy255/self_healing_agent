@@ -33,3 +33,39 @@ jobs:
         run: uv run pytest -m "not integration and not e2e and not live"
       - name: Spec traceability
         run: uv run python tools/trace.py --strict
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: selfhealing
+          POSTGRES_DB: selfhealing
+          # Throwaway password for the ephemeral CI container only; never used elsewhere.
+          POSTGRES_PASSWORD: ci-ephemeral-only
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U selfhealing -d selfhealing"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      UV_COMPILE_BYTECODE: "1"
+      PG_HOST: 127.0.0.1
+      PG_PORT: "5432"
+      PG_USER: selfhealing
+      PG_DATABASE: selfhealing
+      PG_PASSWORD: ci-ephemeral-only
+      # Fail (not skip) if the database is unreachable.
+      REQUIRE_INTEGRATION_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.21"
+          python-version: "3.12"
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+      - name: Integration tests
+        run: uv run pytest -m integration

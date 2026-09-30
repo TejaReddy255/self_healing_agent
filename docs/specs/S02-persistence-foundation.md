@@ -1,7 +1,7 @@
 ---
 id: S02
 title: Persistence foundation, migrations, audit and activity
-status: DRAFT
+status: IN_REVIEW
 phase: 0
 owner_agent: data-engineer
 reviewers: [code-reviewer, data-engineer]
@@ -10,8 +10,8 @@ blocked_by: []
 traces: [FR-110, NFR-001, NFR-040]
 source_sections: ["src §0.1-8", "src §5.1", "src §11", "src §12 (/activities, /ws/activities)", "src §35.8"]
 tags: [schema]
-approved_by:
-approved_on:
+approved_by: product owner
+approved_on: 2026-09-30
 ---
 
 # S02 — Persistence foundation, migrations, audit and activity
@@ -24,8 +24,9 @@ cross-cutting audit, activity and counter persistence that every later slice wri
 `docs/architecture.md` §8, §9, §14, ADR-003; S01 evidence.
 
 ## In scope
-- `backend/db/pool.py`: psycopg 3 `AsyncConnectionPool` built from settings (`PG_HOST`, `PG_PORT`,
-  `PG_DATABASE`, `PG_USER`, `PG_PASSWORD: SecretStr`, pool sizes, `PG_STATEMENT_TIMEOUT_MS`), with a `transaction()` helper.
+- `backend/db/pool.py`: asyncpg pool (ADR-002 amended) built from `DatabaseSettings` (`PG_HOST`, `PG_PORT`,
+  `PG_DATABASE`, `PG_USER`, `PG_PASSWORD: SecretStr`, `PG_POOL_MAX`, `PG_STATEMENT_TIMEOUT_MS`), with `connection()`
+  and `transaction()` helpers. The pool is lazy (`min_size=0`), so the API starts while the DB is down.
 - `backend/db/migrate.py`: CLI `python -m backend.db.migrate up|status|verify`. Creates
   `schema_migrations(version int PK, name text, checksum text, applied_at timestamptz)`. Applies
   `migrations/NNNN_*.sql` in order, each in its own transaction, under `pg_advisory_lock`. `verify`
@@ -60,7 +61,22 @@ One migration: `operation_audit`, `activities`, `agent_performance` (seed row id
 Correlation-ID columns are nullable and have no FK (FKs are added in S15 when the targets exist).
 
 ## Configuration
-`PG_*`, `PG_POOL_MIN/MAX`, `PG_STATEMENT_TIMEOUT_MS=30000`, `AUDIT_MAX_PAYLOAD_BYTES=65536`.
+`PG_*`, `PG_POOL_MAX=10`, `PG_STATEMENT_TIMEOUT_MS=30000`, `AUDIT_MAX_PAYLOAD_BYTES=65536`. There is no
+`PG_POOL_MIN`: the pool is always lazy. The dev compose host port defaults to `55432` (`PG_PORT`) because a
+locally installed PostgreSQL often owns 5432. In `ENV=prod`, `PG_PASSWORD` is required (fail fast); in
+dev/test, without it persistence is disabled and `/activities` returns 503 `DATABASE_UNAVAILABLE`.
+
+## Contract decisions made during implementation (2026-09-30)
+- **Entity IDs are UUIDs** across the platform (`analysis_id`, `review_id`, `job_id`, `incident_id`), so the
+  S15 foreign keys line up.
+- **WebSocket auth** takes the token from `Authorization: Bearer …` or subprotocols `["bearer", "<token>"]`
+  (the server replies with the `bearer` subprotocol). **Query-string tokens are not supported**, because they leak
+  into proxy and access logs. Human roles viewer and above; the `service` role is rejected (close code 1008).
+- Activity `details` are redacted and size-capped by the same `prepare_payload` used for audit.
+- `publish` notifies subscribers only after the transaction commits. A slow subscriber drops its oldest
+  queued item (queue of 100) instead of blocking.
+- The migration CLI takes `--dir` (used by tests and later by the S26 DQ service). Connection settings
+  come only from `PG_*` variables, never from command-line arguments.
 
 ## Acceptance criteria
 - **S02-AC1** `migrate up` on an empty DB applies all migrations. A second run is a no-op. `status` lists applied and pending migrations.
@@ -94,8 +110,24 @@ Drop the created tables in a new down-migration only in non-prod. In prod: rever
 —
 
 ## Verification evidence
+Run on 2026-09-30, Windows 11 (Smart App Control enforcing), Python 3.12.10, Docker 29.8.1, PostgreSQL
+16.4 container on 127.0.0.1:55432, branch `slice/S02-persistence-foundation`.
+
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|
+| Lint / format / types | `ruff check .`, `ruff format --check .`, `mypy backend frontend tools` | PASS | strict mypy: no issues in 47 source files |
+| Unit tests | `uv run pytest -m "not integration and not e2e and not live"` | PASS | 100 passed (S01 suite + S02 unit: payload redaction/truncation, broadcaster, prod requires DB) |
+| Integration tests | `uv run pytest -m integration` (real Postgres) | PASS | 31 passed in ~10 s; each test gets its own throwaway database; 0 leftover `sh_test_*` databases |
+| Full suite | `uv run pytest` | PASS | 131+ passed |
+| Traceability | `uv run python tools/trace.py --strict` | PASS | S02-AC1…AC8 each covered by ≥ 1 test |
+| Migration CLI | `python -m backend.db.migrate status → up → verify → up → status` on the dev DB | PASS | `not initialised / pending 0001` → `applied 0001_audit_activity_performance` → `ok: 1 applied, 0 pending, no drift` → `nothing to apply` → `applied 0001 … <timestamp>` |
+| Real server + WebSocket | scratch script: uvicorn.Server on :8767 + `websockets` client, default `ProactorEventLoop` | PASS | `/health/ready` 200 with `db: ok`, `migrations: ok (1 applied)`; WS subprotocol `bearer`; published activity received in 11 ms; `/activities` returned it; WS without a token rejected with HTTP 403 |
+| No DDL at startup | catalog snapshot before/after app start on an empty DB | PASS | identical `(0, '')` snapshot; readiness 503 `migrations: not initialised` (`test_startup_no_ddl.py`) |
+| CI integration job | `.github/workflows/ci.yml` job `integration` (postgres:16.4 service, `REQUIRE_INTEGRATION_DB=1`) | NOT VERIFIED (remote) | Workflow structure asserted by `tests/unit/test_ci_workflow.py`. No GitHub remote yet |
 
 ## Changelog
 - 2026-09-29 — created (DRAFT)
+- 2026-09-30 — APPROVED by product owner; implemented. The driver changed from psycopg 3 to asyncpg (ADR-002
+  amended; product owner decision after Windows Smart App Control blocked psycopg's bundled DLL). Dev DB host
+  port 55432. Latent S01 issue fixed along the way: an empty `API_TOKENS_FILE=` / `API_TOKENS=` now means
+  "not set" (previously became the path `.`), with unit tests. CI gained an `integration` job. IN_REVIEW.
