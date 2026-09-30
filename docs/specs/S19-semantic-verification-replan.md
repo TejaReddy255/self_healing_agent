@@ -60,6 +60,9 @@ revision that requires fresh approval.
 ## Rollback
 Revert code. Plans remain valid (assertions are already part of the S03 contract).
 
+## Open issues
+- From S03 review: assertion `resource`/`key_columns` match an identifier pattern, but tools must still quote identifiers and check them against pipeline metadata. Deny `$where`, `$function` and `$accumulator` in Mongo filters server-side too (the contract already rejects them). Assertion IDs are unique per plan, which is the `verification_results` key.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

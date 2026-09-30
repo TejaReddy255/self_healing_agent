@@ -66,6 +66,9 @@ DQ Monitor scheduling and the other adapters (S18). Verification routing (S20). 
 ## Rollback
 Disable DQ in the pipeline metadata (`monitoring.dq.enabled=false`) and remove the checkpoint tasks. Revert code.
 
+## Open issues
+- From S03 review: map `DQFinding.check_id` → `DQAgentResult.check_id` and set `MonitoringEvent.metric` for profiling/statistical/anomaly findings without a rule. `DQRunResult` rejects PASS with no results, and a blocking ERROR forces run status CRITICAL/ERROR.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

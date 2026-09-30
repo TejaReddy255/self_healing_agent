@@ -7,14 +7,23 @@ nothing here depends on how a DQ agent computes its result.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Self
+from typing import Self
 from uuid import UUID
 
-from pydantic import Field, NonNegativeInt, RootModel, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    RootModel,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 from backend.domain.common import (
     Contract,
     DagId,
+    JsonObject,
     NonEmptyStr,
     PipelineId,
     RuleId,
@@ -61,11 +70,11 @@ class DQProfileEntry(Contract):
     """One agent in a checkpoint's DQ profile (canonical shape, architecture §18 C9)."""
 
     agent: DQAgentName
-    enabled: bool = True
-    blocking: bool = False
-    rules: list[RuleId] | None = None
+    enabled: StrictBool = True
+    blocking: StrictBool = False
+    rules: tuple[RuleId, ...] | None = None
     schedule: ShortText | None = None
-    params: dict[str, Any] = Field(default_factory=dict)
+    params: JsonObject = Field(default_factory=dict)
 
     @field_validator("agent", mode="before")
     @classmethod
@@ -75,10 +84,10 @@ class DQProfileEntry(Contract):
         return value
 
 
-class DQProfile(RootModel[dict[Checkpoint, list[DQProfileEntry]]]):
+class DQProfile(RootModel[dict[Checkpoint, tuple[DQProfileEntry, ...]]]):
     """Per-checkpoint DQ agent selection, e.g. ``{"TARGET": [{"agent": "custom_dq", ...}]}``."""
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class DQExecutionContext(Contract):
@@ -89,7 +98,7 @@ class DQExecutionContext(Contract):
     run_id: RunId | None = None
     checkpoint: Checkpoint
     request_key: ShortText
-    rule_ids: list[RuleId] | None = None
+    rule_ids: tuple[RuleId, ...] | None = None
 
 
 class DQAgentResult(Contract):
@@ -99,13 +108,15 @@ class DQAgentResult(Contract):
     agent: DQAgentName
     checkpoint: Checkpoint
     rule_id: RuleId | None = None
+    # Identifies profiling/statistical/anomaly checks that have no business rule.
+    check_id: ShortText | None = None
     status: DQStatus
-    blocking: bool
-    expected: dict[str, Any] | None = None
-    actual: dict[str, Any] | None = None
+    blocking: StrictBool
+    expected: JsonObject | None = None
+    actual: JsonObject | None = None
     failed_row_count: NonNegativeInt | None = None
     message: NonEmptyStr | None = None
-    evidence: dict[str, Any] = Field(default_factory=dict)
+    evidence: JsonObject = Field(default_factory=dict)
     dq_service_job_id: ShortText | None = None
     report_ref: ShortText | None = None
     evaluated_at: UtcDatetime
@@ -120,20 +131,24 @@ class DQRunResult(Contract):
     run_id: RunId | None = None
     checkpoint: Checkpoint
     status: DQStatus
-    results: list[DQAgentResult]
+    results: tuple[DQAgentResult, ...]
     started_at: UtcDatetime
     finished_at: UtcDatetime | None = None
     error: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _status_never_hides_failures(self) -> Self:
-        # Invariant 7 depends on this: an errored or failed check must never surface as PASS.
+        # Invariant 7 depends on this: an errored, failed or empty check never surfaces as PASS.
+        if self.status is DQStatus.PASS and not self.results:
+            raise ValueError("status PASS requires at least one result")
         if self.status is DQStatus.PASS and any(
             r.status in (DQStatus.ERROR, DQStatus.CRITICAL) for r in self.results
         ):
             raise ValueError("status PASS contradicts an ERROR or CRITICAL result")
         if self.status not in (DQStatus.CRITICAL, DQStatus.ERROR) and any(
-            r.blocking and r.status is DQStatus.CRITICAL for r in self.results
+            r.blocking and r.status in (DQStatus.CRITICAL, DQStatus.ERROR) for r in self.results
         ):
-            raise ValueError("a blocking CRITICAL result requires run status CRITICAL or ERROR")
+            raise ValueError(
+                "a blocking CRITICAL or ERROR result requires run status CRITICAL or ERROR"
+            )
         return self

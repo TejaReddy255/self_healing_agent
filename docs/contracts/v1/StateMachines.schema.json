@@ -100,7 +100,8 @@
   "x-incident-transitions": {
     "APPROVED": [
       "EXECUTING",
-      "FAILED"
+      "FAILED",
+      "REPLAN_REQUIRED"
     ],
     "AWAITING_APPROVAL": [
       "APPROVED",

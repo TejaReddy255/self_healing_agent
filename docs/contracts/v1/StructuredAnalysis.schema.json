@@ -37,6 +37,7 @@
         "error_details": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -48,6 +49,7 @@
           "title": "Error Details"
         },
         "impact": {
+          "maxLength": 10000,
           "minLength": 1,
           "title": "Impact",
           "type": "string"
@@ -67,6 +69,7 @@
           "title": "Pipeline Id"
         },
         "root_cause": {
+          "maxLength": 10000,
           "minLength": 1,
           "title": "Root Cause",
           "type": "string"
@@ -127,6 +130,7 @@
           "type": "string"
         },
         "value": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Value",
           "type": "integer"
@@ -182,6 +186,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -196,7 +201,9 @@
           "$ref": "#/$defs/CountExpectation"
         },
         "filter": {
-          "additionalProperties": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
           "title": "Filter",
           "type": "object"
         },
@@ -207,7 +214,7 @@
         },
         "resource": {
           "maxLength": 256,
-          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_$]*(\\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$",
           "title": "Resource",
           "type": "string"
         }
@@ -233,6 +240,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -248,10 +256,11 @@
         },
         "key_columns": {
           "items": {
-            "maxLength": 256,
-            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_$]*$",
             "type": "string"
           },
+          "maxItems": 32,
           "minItems": 1,
           "title": "Key Columns",
           "type": "array"
@@ -263,7 +272,7 @@
         },
         "resource": {
           "maxLength": 256,
-          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_$]*(\\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$",
           "title": "Resource",
           "type": "string"
         }
@@ -329,11 +338,13 @@
           "title": "Category"
         },
         "description": {
+          "maxLength": 10000,
           "minLength": 1,
           "title": "Description",
           "type": "string"
         },
         "evidence_refs": {
+          "default": [],
           "items": {
             "maxLength": 256,
             "minLength": 1,
@@ -364,6 +375,7 @@
       "title": "Finding",
       "type": "object"
     },
+    "JsonValue": {},
     "ObjectCountAssertion": {
       "additionalProperties": false,
       "properties": {
@@ -374,14 +386,14 @@
           "type": "string"
         },
         "bucket": {
-          "maxLength": 256,
-          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9.\\-]{1,61}[a-z0-9]$",
           "title": "Bucket",
           "type": "string"
         },
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -402,6 +414,7 @@
         },
         "prefix": {
           "default": "",
+          "maxLength": 1024,
           "title": "Prefix",
           "type": "string"
         }
@@ -425,14 +438,14 @@
           "type": "string"
         },
         "bucket": {
-          "maxLength": 256,
-          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9.\\-]{1,61}[a-z0-9]$",
           "title": "Bucket",
           "type": "string"
         },
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -447,6 +460,7 @@
           "$ref": "#/$defs/ExistsExpectation"
         },
         "key": {
+          "maxLength": 1024,
           "minLength": 1,
           "title": "Key",
           "type": "string"
@@ -471,6 +485,7 @@
       "additionalProperties": false,
       "properties": {
         "action": {
+          "maxLength": 10000,
           "minLength": 1,
           "title": "Action",
           "type": "string"
@@ -481,6 +496,7 @@
           "type": "integer"
         },
         "rationale": {
+          "maxLength": 10000,
           "minLength": 1,
           "title": "Rationale",
           "type": "string"
@@ -503,7 +519,9 @@
       "additionalProperties": false,
       "properties": {
         "expected_write_operations": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -514,6 +532,7 @@
           "anyOf": [
             {
               "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
               "type": "integer"
             },
             {
@@ -524,6 +543,7 @@
           "title": "Max Affected Rows"
         },
         "precondition_assertions": {
+          "default": [],
           "items": {
             "discriminator": {
               "mapping": {
@@ -561,7 +581,9 @@
           "type": "array"
         },
         "preconditions": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -577,7 +599,9 @@
           "$ref": "#/$defs/RiskLevel"
         },
         "steps": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -585,7 +609,9 @@
           "type": "array"
         },
         "stop_conditions": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -593,6 +619,7 @@
           "type": "array"
         },
         "target_resources": {
+          "default": [],
           "items": {
             "maxLength": 256,
             "minLength": 1,
@@ -608,6 +635,7 @@
           "$ref": "#/$defs/VerificationPlan"
         },
         "verification_rules": {
+          "default": [],
           "items": {
             "$ref": "#/$defs/DQRuleRef"
           },
@@ -622,6 +650,7 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "minItems": 1,
               "type": "array"
             },
             {
@@ -662,6 +691,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -682,7 +712,7 @@
         },
         "resource": {
           "maxLength": 256,
-          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_$]*(\\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$",
           "title": "Resource",
           "type": "string"
         }
@@ -723,6 +753,7 @@
         },
         "remediation_steps": {
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -731,7 +762,9 @@
           "type": "array"
         },
         "required_evidence": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -742,7 +775,9 @@
           "$ref": "#/$defs/RiskLevel"
         },
         "stop_conditions": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -759,7 +794,9 @@
           "type": "string"
         },
         "verification_steps": {
+          "default": [],
           "items": {
+            "maxLength": 10000,
             "minLength": 1,
             "type": "string"
           },
@@ -779,8 +816,21 @@
     },
     "SOPReference": {
       "additionalProperties": false,
-      "description": "Pins the approved SOP (and version, when catalogued) that a plan follows.",
+      "description": "Pins the SOP a plan follows. ``content_sha256`` pins its exact content, so a metadata reload\nbetween approval and execution cannot change the SOP behind an approved hash (ADR-006).",
       "properties": {
+        "content_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sha256"
+        },
         "sop_id": {
           "maxLength": 256,
           "minLength": 1,
@@ -870,6 +920,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -889,6 +940,7 @@
           "type": "string"
         },
         "sql": {
+          "maxLength": 10000,
           "minLength": 1,
           "title": "Sql",
           "type": "string"
@@ -917,6 +969,7 @@
       "additionalProperties": false,
       "properties": {
         "assertions": {
+          "default": [],
           "items": {
             "discriminator": {
               "mapping": {
@@ -962,7 +1015,9 @@
   "additionalProperties": false,
   "properties": {
     "additional_investigation_needed": {
+      "default": [],
       "items": {
+        "maxLength": 10000,
         "minLength": 1,
         "type": "string"
       },
@@ -973,6 +1028,7 @@
       "$ref": "#/$defs/Confidence"
     },
     "detailed_findings": {
+      "default": [],
       "items": {
         "$ref": "#/$defs/Finding"
       },
@@ -1007,7 +1063,9 @@
       "type": "string"
     },
     "prevention_measures": {
+      "default": [],
       "items": {
+        "maxLength": 10000,
         "minLength": 1,
         "type": "string"
       },
@@ -1037,6 +1095,7 @@
       "default": null
     },
     "recommendations": {
+      "default": [],
       "items": {
         "$ref": "#/$defs/Recommendation"
       },

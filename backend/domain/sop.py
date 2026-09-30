@@ -10,7 +10,14 @@ from typing import Literal
 
 from pydantic import Field
 
-from backend.domain.common import Contract, NonEmptyStr, RiskLevel, ShortText, SystemName
+from backend.domain.common import (
+    Contract,
+    NonEmptyStr,
+    RiskLevel,
+    Sha256Hex,
+    ShortText,
+    SystemName,
+)
 
 
 class SOPMatchStatus(StrEnum):
@@ -20,10 +27,12 @@ class SOPMatchStatus(StrEnum):
 
 
 class SOPReference(Contract):
-    """Pins the approved SOP (and version, when catalogued) that a plan follows."""
+    """Pins the SOP a plan follows. ``content_sha256`` pins its exact content, so a metadata reload
+    between approval and execution cannot change the SOP behind an approved hash (ADR-006)."""
 
     sop_id: ShortText
     version: ShortText | None = None
+    content_sha256: Sha256Hex | None = None
 
 
 class SOPProposal(Contract):
@@ -33,10 +42,10 @@ class SOPProposal(Contract):
     category: ShortText
     target_system: SystemName
     risk_level: RiskLevel
-    required_evidence: list[NonEmptyStr] = Field(default_factory=list)
-    remediation_steps: list[NonEmptyStr] = Field(min_length=1)
-    verification_steps: list[NonEmptyStr] = Field(default_factory=list)
-    stop_conditions: list[NonEmptyStr] = Field(default_factory=list)
+    required_evidence: tuple[NonEmptyStr, ...] = ()
+    remediation_steps: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    verification_steps: tuple[NonEmptyStr, ...] = ()
+    stop_conditions: tuple[NonEmptyStr, ...] = ()
     human_approval_required: Literal[True] = True
 
 

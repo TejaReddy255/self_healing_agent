@@ -40,7 +40,8 @@ ALLOWED_TRANSITIONS: Mapping[IncidentStatus, frozenset[IncidentStatus]] = Mappin
         _S.INVESTIGATING: frozenset({_S.RCA_COMPLETED, _S.FAILED}),
         _S.RCA_COMPLETED: frozenset({_S.AWAITING_APPROVAL, _S.INVESTIGATING, _S.REJECTED}),
         _S.AWAITING_APPROVAL: frozenset({_S.APPROVED, _S.REJECTED}),
-        _S.APPROVED: frozenset({_S.EXECUTING, _S.FAILED}),
+        # REPLAN_REQUIRED: PRECHECK found the approved plan contradicted (src §25).
+        _S.APPROVED: frozenset({_S.EXECUTING, _S.FAILED, _S.REPLAN_REQUIRED}),
         _S.EXECUTING: frozenset({_S.VERIFYING, _S.FAILED, _S.REPLAN_REQUIRED}),
         _S.VERIFYING: frozenset({_S.RECOVERY_RUNNING, _S.FAILED, _S.REPLAN_REQUIRED}),
         _S.RECOVERY_RUNNING: frozenset({_S.RESOLVED, _S.FAILED, _S.REPLAN_REQUIRED}),

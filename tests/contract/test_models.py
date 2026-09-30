@@ -34,6 +34,15 @@ def load(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
+def _payload(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sop_match_status": "NO_MATCH",
+        "matched_sop_reference": None,
+        "proposed_sop": None,
+        "proposed_remediation": plan,
+    }
+
+
 def canonical_plan() -> dict[str, Any]:
     plan: dict[str, Any] = load("canonical_structured_analysis.json")["proposed_remediation"]
     return plan
@@ -104,10 +113,10 @@ def test_src_33_5_sop_shape_validates_as_proposal_and_reference() -> None:
     proposal = SOPProposal.model_validate(sop)
     assert reference.sop_id == "SOP-PG-001"
     assert proposal.target_system is SystemName.POSTGRESQL
-    assert proposal.stop_conditions == [
+    assert proposal.stop_conditions == (
         "partition strategy cannot be verified",
         "overlapping partition exists",
-    ]
+    )
 
 
 @pytest.mark.spec("S03-AC1")
@@ -140,7 +149,7 @@ def test_canonical_structured_analysis_and_approval_payload_validate() -> None:
     plan = analysis.proposed_remediation
     assert plan is not None
     assert plan.max_affected_rows == 417
-    assert plan.verification_rules == [DQRuleRef(rule_id="BR-CUST-002", rule_set_id="CUSTOMER-DQ")]
+    assert plan.verification_rules == (DQRuleRef(rule_id="BR-CUST-002", rule_set_id="CUSTOMER-DQ"),)
     payload = ApprovalPayload(
         sop_match_status=analysis.sop_match_status,
         matched_sop_reference=analysis.matched_sop_reference,
@@ -171,19 +180,31 @@ def test_plan_rejects_unknown_target_system() -> None:
 
 
 @pytest.mark.spec("S03-AC3")
-def test_plan_with_writes_rejects_empty_assertions() -> None:
+def test_approval_payload_rejects_writes_without_assertions() -> None:
     plan = canonical_plan() | {"verification_plan": {"assertions": []}}
     with pytest.raises(ValidationError, match="assertions must not be empty"):
-        RemediationPlan.model_validate(plan)
+        ApprovalPayload.model_validate(_payload(plan))
+
+
+@pytest.mark.spec("S03-AC3")
+def test_rca_keeps_a_plan_without_assertions_for_the_plan_validator() -> None:
+    # Decision 2026-09-30: an RCA is not lost over an incomplete plan. The plan validator (S09 N5)
+    # marks it non-executable, and it can never be approved.
+    plan = canonical_plan() | {"verification_plan": {"assertions": []}}
+    analysis = load("canonical_structured_analysis.json") | {"proposed_remediation": plan}
+    parsed = StructuredAnalysis.model_validate(analysis)
+    assert parsed.proposed_remediation is not None
+    assert parsed.proposed_remediation.verification_plan.assertions == ()
 
 
 @pytest.mark.spec("S03-AC3")
 def test_plan_without_writes_may_have_no_assertions() -> None:
     plan = canonical_plan() | {
         "expected_write_operations": [],
+        "write_tools": None,
         "verification_plan": {"assertions": []},
     }
-    assert RemediationPlan.model_validate(plan).verification_plan.assertions == []
+    assert RemediationPlan.model_validate(plan).verification_plan.assertions == ()
 
 
 @pytest.mark.spec("S03-AC3")
@@ -311,7 +332,7 @@ def test_approve_request_requires_a_sha256_hash() -> None:
 def test_revision_accept_requires_payload() -> None:
     with pytest.raises(ValidationError, match="validated_payload"):
         ReviewRevisionResult(decision="ACCEPT", summary="looks fine")
-    assert ReviewRevisionResult(decision="REJECT", summary="widens scope").violations == []
+    assert ReviewRevisionResult(decision="REJECT", summary="widens scope").violations == ()
 
 
 def test_datetimes_must_be_aware_and_are_normalised_to_utc() -> None:
@@ -362,3 +383,128 @@ def test_dq_run_status_never_hides_failures(
             results=[_dq_result(result_status, blocking=blocking)],
             started_at=datetime(2026, 9, 30, tzinfo=UTC),
         )
+
+
+# --- Review follow-ups: text hygiene, identifiers, strictness ----------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["dw.customer​", "delete ‮WHERE 1=1", "line\x00break", "bell\x07"],
+    ids=["zero-width-space", "bidi-override", "nul", "control"],
+)
+def test_text_with_invisible_or_control_characters_is_rejected(text: str) -> None:
+    plan = canonical_plan() | {"steps": [text]}
+    with pytest.raises(ValidationError, match="control or invisible"):
+        RemediationPlan.model_validate(plan)
+
+
+def test_text_is_nfc_normalised_so_lookalikes_hash_alike() -> None:
+    decomposed = "café cleanup"  # "e" + combining acute accent
+    plan = RemediationPlan.model_validate(canonical_plan() | {"steps": [decomposed, "a\tb\nc"]})
+    assert plan.steps == ("café cleanup", "a\tb\nc")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("resource", "dw.customer; DELETE FROM dw.customer"),
+        ("resource", "a.b.c.d"),
+        ("key_columns", ["customer_id) OR (1=1"]),
+    ],
+)
+def test_assertion_identifiers_must_be_plain_names(field: str, value: Any) -> None:
+    plan = copy.deepcopy(canonical_plan())
+    plan["verification_plan"]["assertions"][0][field] = value
+    with pytest.raises(ValidationError):
+        RemediationPlan.model_validate(plan)
+
+
+@pytest.mark.parametrize(
+    "assertion",
+    [
+        pytest.param({**_OBJ, "bucket": "Bad_Bucket", "expected": {"value": True}}, id="bucket"),
+        pytest.param(
+            {"kind": "document_count", "resource": "crm.c", "expected": _eq(0),
+             "filter": {"$or": [{"$where": "sleep(1000)"}]}},
+            id="mongo-where",
+        ),
+    ],
+)  # fmt: skip
+def test_s3_and_mongo_assertions_are_constrained(assertion: dict[str, Any]) -> None:
+    plan = copy.deepcopy(canonical_plan())
+    plan["verification_plan"]["assertions"] = [{"assertion_id": "a1", **assertion}]
+    with pytest.raises(ValidationError):
+        RemediationPlan.model_validate(plan)
+
+
+def test_write_tools_require_declared_writes_and_are_never_empty() -> None:
+    no_writes = canonical_plan() | {"expected_write_operations": [], "verification_plan": {}}
+    with pytest.raises(ValidationError, match="write_tools requires"):
+        ApprovalPayload.model_validate(_payload(no_writes))
+    with pytest.raises(ValidationError):
+        RemediationPlan.model_validate(canonical_plan() | {"write_tools": []})
+
+
+def test_assertion_ids_are_unique_across_the_plan() -> None:
+    plan = copy.deepcopy(canonical_plan())
+    plan["precondition_assertions"][0]["assertion_id"] = "post-rows"
+    with pytest.raises(ValidationError, match="unique: post-rows"):
+        RemediationPlan.model_validate(plan)
+
+
+def test_hashed_numbers_and_flags_are_strict() -> None:
+    for update in (
+        {"retry_airflow_after_success": "off"},
+        {"retry_airflow_after_success": 0},
+        {"max_affected_rows": True},
+        {"max_affected_rows": 2**53},
+    ):
+        with pytest.raises(ValidationError):
+            RemediationPlan.model_validate(canonical_plan() | update)
+
+
+def test_validated_sequences_cannot_be_edited_in_place() -> None:
+    plan = RemediationPlan.model_validate(canonical_plan())
+    assert isinstance(plan.steps, tuple)
+    with pytest.raises(AttributeError):
+        plan.steps.append("DROP TABLE dw.customer")  # type: ignore[attr-defined]
+
+
+def test_sop_reference_can_pin_content_hash() -> None:
+    assert SOPReference(sop_id="SOP-PG-001", content_sha256="f" * 64).content_sha256 == "f" * 64
+    with pytest.raises(ValidationError):
+        SOPReference(sop_id="SOP-PG-001", content_sha256="not-a-hash")
+
+
+def test_dq_run_pass_needs_results_and_blocking_error_fails_closed() -> None:
+    common: dict[str, Any] = {
+        "request_key": "k",
+        "pipeline_id": "customer_daily_load",
+        "checkpoint": Checkpoint.TARGET,
+        "started_at": datetime(2026, 9, 30, tzinfo=UTC),
+    }
+    with pytest.raises(ValidationError, match="at least one result"):
+        DQRunResult(status=DQStatus.PASS, results=(), **common)
+    with pytest.raises(ValidationError, match="blocking CRITICAL or ERROR"):
+        DQRunResult(
+            status=DQStatus.WARNING, results=(_dq_result(DQStatus.ERROR, blocking=True),), **common
+        )
+    ok = DQRunResult(
+        status=DQStatus.PASS, results=(_dq_result(DQStatus.PASS, blocking=True),), **common
+    )
+    assert ok.status is DQStatus.PASS
+
+
+def test_free_form_evidence_must_be_finite_json() -> None:
+    base = load("src_21_3_monitoring_event.json")
+    with pytest.raises(ValidationError):
+        MonitoringEvent.model_validate(base | {"evidence": {"score": float("nan")}})
+
+
+@pytest.mark.spec("S03-AC1")
+def test_src_23_3_verbatim_example_differs_only_by_the_c9_agent_name() -> None:
+    verbatim = load("src_23_3_dq_profile.json")
+    verbatim["RECONCILIATION"][0]["agent"] = "reconciliation"  # exactly as printed in src §23.3
+    with pytest.raises(ValidationError, match="'recon'"):
+        DQProfile.model_validate(verbatim)

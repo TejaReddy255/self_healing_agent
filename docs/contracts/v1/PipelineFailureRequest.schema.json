@@ -25,6 +25,7 @@
       "title": "Task Id"
     },
     "workflow_id": {
+      "description": "The Airflow dag_id of the failed run.",
       "maxLength": 250,
       "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
       "title": "Workflow Id",

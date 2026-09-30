@@ -5,7 +5,9 @@ rule below (or the field set of ``ApprovalPayload`` and its nested models, becau
 are serialised) invalidates stored approvals, so it requires an ADR.
 
 Rules:
-- models are dumped with ``model_dump(mode="json", exclude_none=False)``;
+- models are dumped with ``model_dump(mode="json", exclude_none=False)``. The Python-mode dump is
+  canonicalised too and must give the same result, so values pydantic would silently coerce in JSON
+  mode (NaN to null, sets to lists, int keys to strings) are rejected instead of hashed;
 - object keys are sorted, separators are ``(",", ":")``;
 - output is UTF-8 with ``ensure_ascii=False``;
 - NaN and Infinity are rejected;
@@ -36,7 +38,10 @@ class CanonicalizationError(ValueError):
 
 def _normalise(value: Any, path: str) -> Any:
     if isinstance(value, BaseModel):
-        return _normalise(value.model_dump(mode="json", exclude_none=False), path)
+        dumped = _normalise(value.model_dump(mode="json", exclude_none=False), path)
+        if _normalise(value.model_dump(mode="python", exclude_none=False), path) != dumped:
+            raise CanonicalizationError(f"{path}: model contains values without a canonical form")
+        return dumped
     if value is None or isinstance(value, (bool, int, str)):
         return value.value if isinstance(value, Enum) else value
     if isinstance(value, float):

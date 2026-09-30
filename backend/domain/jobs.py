@@ -35,6 +35,7 @@ _R = RemediationStage
 _I = IncidentStatus
 
 # The finer verification stages are job stages, not incident statuses (architecture §18 C1).
+# Services apply the target status through ``can_transition``; the map never bypasses it.
 STAGE_TO_INCIDENT_STATUS: Mapping[RemediationStage, IncidentStatus] = MappingProxyType(
     {
         _R.QUEUED: _I.APPROVED,
@@ -49,3 +50,16 @@ STAGE_TO_INCIDENT_STATUS: Mapping[RemediationStage, IncidentStatus] = MappingPro
         _R.REPLAN_REQUIRED: _I.REPLAN_REQUIRED,
     }
 )
+
+
+def incident_status_for(
+    stage: RemediationStage, *, recovery_skipped: bool = False
+) -> IncidentStatus:
+    """Incident status for a job stage (architecture §7.5).
+
+    With ``retry_airflow_after_success = false`` there is no recovery run, so a COMPLETED job leaves
+    the incident in RECOVERY_RUNNING until an operator confirms recovery (invariant 7).
+    """
+    if stage is RemediationStage.COMPLETED and recovery_skipped:
+        return IncidentStatus.RECOVERY_RUNNING
+    return STAGE_TO_INCIDENT_STATUS[stage]

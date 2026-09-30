@@ -62,6 +62,9 @@ Monitors (S14). Incidents (S15).
 ## Rollback
 Revert code. The table is additive. Remove the callback from DAGs.
 
+## Open issues
+- From S03 review: reject a caller-supplied `event_id` at ingest (or use an inbound model without it). `MonitoringEvent.metric` exists for checks without a `rule_id` (fingerprint input, src §24.2). DQ `expected`/`actual` dicts are written as `canonical_json` strings in the event, with the structured copy in `evidence`.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

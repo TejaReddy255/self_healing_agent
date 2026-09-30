@@ -60,6 +60,9 @@ run durably; run the final DQ gate; and make RESOLVED reachable only through the
 ## Rollback
 Revert code. If rolled back, S11's in-worker RECOVERY_VERIFY remains the fallback. The tables are additive.
 
+## Open issues
+- From S03 (decision 2026-09-30, architecture §7.5): with `retry_airflow_after_success=false`, a COMPLETED job leaves the incident in RECOVERY_RUNNING. Only a recorded operator recovery confirmation moves it to RESOLVED. Build that confirmation (API + audit) here.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

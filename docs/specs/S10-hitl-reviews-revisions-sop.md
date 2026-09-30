@@ -79,6 +79,11 @@ The approval CAS and the revision immutability are release-blocking safety contr
 ## Rollback
 Revert code. The tables are additive. Pending reviews remain readable.
 
+## Open issues
+- From S03 review (ADR-006): persist the canonical bytes (`canonical_json`) with each revision. Verify `sha256(stored bytes)` and `canonical_json(parse(stored)) == stored`, and fail closed. Store the payload as bytes or `json`, not only `jsonb`, because jsonb can renormalise numbers such as `1e20`.
+- From S03 review: a W2 ACCEPT's `validated_payload` must be byte-identical (canonical) to the submitted human edit, so the model cannot silently rewrite it. Add `RejectRequest{reason}`, `RevisionSubmitRequest{base_revision, payload}` and a revision `source` enum as additive contracts.
+- From S03: `SOPReference.content_sha256` exists. Fill it from `approved_sops.sha256` or the YAML content hash when a review is created.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

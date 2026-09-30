@@ -10,7 +10,7 @@ from backend.domain.incident import (
     IncidentStatus,
     can_transition,
 )
-from backend.domain.jobs import STAGE_TO_INCIDENT_STATUS, RemediationStage
+from backend.domain.jobs import STAGE_TO_INCIDENT_STATUS, RemediationStage, incident_status_for
 
 S = IncidentStatus
 
@@ -20,7 +20,7 @@ ARCHITECTURE_7_4: dict[IncidentStatus, set[IncidentStatus]] = {
     S.INVESTIGATING: {S.RCA_COMPLETED, S.FAILED},
     S.RCA_COMPLETED: {S.AWAITING_APPROVAL, S.INVESTIGATING, S.REJECTED},
     S.AWAITING_APPROVAL: {S.APPROVED, S.REJECTED},
-    S.APPROVED: {S.EXECUTING, S.FAILED},
+    S.APPROVED: {S.EXECUTING, S.FAILED, S.REPLAN_REQUIRED},  # amended 2026-09-30 (S03)
     S.EXECUTING: {S.VERIFYING, S.FAILED, S.REPLAN_REQUIRED},
     S.VERIFYING: {S.RECOVERY_RUNNING, S.FAILED, S.REPLAN_REQUIRED},
     S.RECOVERY_RUNNING: {S.RESOLVED, S.FAILED, S.REPLAN_REQUIRED},
@@ -87,19 +87,37 @@ def test_stage_mapping_matches_architecture_7_5() -> None:
     }
 
 
+R = RemediationStage
+HAPPY_PATH = [
+    R.QUEUED, R.PRECHECK, R.EXECUTING, R.TECHNICAL_VERIFY, R.DQ_VERIFY, R.RECOVERY_TRIGGER,
+    R.RECOVERY_VERIFY, R.COMPLETED,
+]  # fmt: skip
+# Architecture §7.3: the happy path, "any stage -> FAILED | REPLAN_REQUIRED".
+STAGE_EDGES = [
+    *itertools.pairwise(HAPPY_PATH),
+    *((stage, end) for stage in HAPPY_PATH[:-1] for end in (R.FAILED, R.REPLAN_REQUIRED)),
+]
+
+
 @pytest.mark.spec("S03-AC7")
-def test_stage_progression_is_a_legal_incident_path() -> None:
-    # Walking the happy path of job stages never asks the incident for an illegal transition.
-    happy_path = [
-        RemediationStage.QUEUED,
-        RemediationStage.PRECHECK,
-        RemediationStage.EXECUTING,
-        RemediationStage.TECHNICAL_VERIFY,
-        RemediationStage.DQ_VERIFY,
-        RemediationStage.RECOVERY_TRIGGER,
-        RemediationStage.RECOVERY_VERIFY,
-        RemediationStage.COMPLETED,
-    ]
-    statuses = [STAGE_TO_INCIDENT_STATUS[stage] for stage in happy_path]
-    for current, target in itertools.pairwise(statuses):
-        assert current == target or can_transition(current, target), (current, target)
+@pytest.mark.parametrize(
+    ("current", "target"), STAGE_EDGES, ids=[f"{a}->{b}" for a, b in STAGE_EDGES]
+)
+def test_every_stage_edge_is_a_legal_incident_transition(
+    current: RemediationStage, target: RemediationStage
+) -> None:
+    before, after = incident_status_for(current), incident_status_for(target)
+    assert before == after or can_transition(before, after), (before, after)
+
+
+@pytest.mark.spec("S03-AC7")
+def test_skipped_recovery_waits_for_operator_confirmation() -> None:
+    # retry_airflow_after_success=false: DQ_VERIFY -> COMPLETED with no recovery run.
+    before = incident_status_for(R.DQ_VERIFY)
+    after = incident_status_for(R.COMPLETED, recovery_skipped=True)
+    assert (before, after) == (S.VERIFYING, S.RECOVERY_RUNNING)
+    assert can_transition(before, after)
+    assert not can_transition(before, S.RESOLVED)
+    # Only the recorded operator confirmation takes it from here to RESOLVED.
+    assert can_transition(after, S.RESOLVED)
+    assert incident_status_for(R.COMPLETED) is S.RESOLVED

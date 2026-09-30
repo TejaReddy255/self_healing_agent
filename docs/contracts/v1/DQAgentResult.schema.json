@@ -33,7 +33,8 @@
       ],
       "title": "DQStatus",
       "type": "string"
-    }
+    },
+    "JsonValue": {}
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -42,7 +43,9 @@
     "actual": {
       "anyOf": [
         {
-          "additionalProperties": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
           "type": "object"
         },
         {
@@ -58,6 +61,20 @@
     "blocking": {
       "title": "Blocking",
       "type": "boolean"
+    },
+    "check_id": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Check Id"
     },
     "checkpoint": {
       "$ref": "#/$defs/Checkpoint"
@@ -82,14 +99,18 @@
       "type": "string"
     },
     "evidence": {
-      "additionalProperties": true,
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
       "title": "Evidence",
       "type": "object"
     },
     "expected": {
       "anyOf": [
         {
-          "additionalProperties": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
           "type": "object"
         },
         {
@@ -115,6 +136,7 @@
     "message": {
       "anyOf": [
         {
+          "maxLength": 10000,
           "minLength": 1,
           "type": "string"
         },

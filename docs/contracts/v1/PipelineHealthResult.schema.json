@@ -9,6 +9,7 @@
       "title": "HealthStatus",
       "type": "string"
     },
+    "JsonValue": {},
     "MonitorRunStatus": {
       "description": "Outcome of one monitor in a cycle (S14).",
       "enum": [
@@ -22,11 +23,12 @@
     },
     "MonitoringEvent": {
       "additionalProperties": false,
-      "description": "A deterministic signal from a monitor or an Airflow/DQ callback.\n\n``event_id`` is assigned on persistence. ``idempotency_key`` is caller-supplied or derived at\ningest (S13). ``resource`` and ``rule_id`` feed the incident fingerprint (src §24.2).",
+      "description": "A deterministic signal from a monitor or an Airflow/DQ callback.\n\n``event_id`` is assigned on persistence. ``idempotency_key`` is caller-supplied or derived at\ningest (S13). ``resource`` and ``rule_id`` (or ``metric`` for checks without a rule) feed the\nincident fingerprint (src §24.2).",
       "properties": {
         "actual": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -76,13 +78,16 @@
           "type": "string"
         },
         "evidence": {
-          "additionalProperties": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
           "title": "Evidence",
           "type": "object"
         },
         "expected": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "minLength": 1,
               "type": "string"
             },
@@ -106,6 +111,20 @@
           ],
           "default": null,
           "title": "Idempotency Key"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric"
         },
         "pipeline_id": {
           "maxLength": 128,
@@ -217,6 +236,7 @@
       "type": "string"
     },
     "events": {
+      "default": [],
       "items": {
         "$ref": "#/$defs/MonitoringEvent"
       },

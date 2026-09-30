@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import Field, StringConstraints
 
@@ -11,6 +11,7 @@ from backend.domain.common import (
     Contract,
     DagId,
     EventId,
+    JsonObject,
     NonEmptyStr,
     PipelineId,
     RuleId,
@@ -52,7 +53,8 @@ class MonitoringEvent(Contract):
     """A deterministic signal from a monitor or an Airflow/DQ callback.
 
     ``event_id`` is assigned on persistence. ``idempotency_key`` is caller-supplied or derived at
-    ingest (S13). ``resource`` and ``rule_id`` feed the incident fingerprint (src §24.2).
+    ingest (S13). ``resource`` and ``rule_id`` (or ``metric`` for checks without a rule) feed the
+    incident fingerprint (src §24.2).
     """
 
     event_id: EventId | None = None
@@ -66,15 +68,16 @@ class MonitoringEvent(Contract):
     severity: Severity
     resource: ShortText | None = None
     rule_id: RuleId | None = None
+    metric: ShortText | None = None
     expected: NonEmptyStr | None = None
     actual: NonEmptyStr | None = None
-    evidence: dict[str, Any] = Field(default_factory=dict)
+    evidence: JsonObject = Field(default_factory=dict)
     detected_at: UtcDatetime
 
 
 class PipelineHealthResult(Contract):
     pipeline_id: PipelineId
     overall_status: HealthStatus
-    events: list[MonitoringEvent] = Field(default_factory=list)
+    events: tuple[MonitoringEvent, ...] = ()
     monitor_status: dict[ShortText, MonitorRunStatus] = Field(default_factory=dict)
     evaluated_at: UtcDatetime

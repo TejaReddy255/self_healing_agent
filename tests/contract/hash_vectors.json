@@ -9,8 +9,8 @@
         "proposed_sop": null,
         "proposed_remediation": null
       },
-      "canonical": "{\"matched_sop_reference\":null,\"proposed_remediation\":null,\"proposed_sop\":null,\"sop_match_status\":\"NO_MATCH\"}",
-      "sha256": "4bbf0b209d5ad5ea585869542308467a5c6a81d9eff3ac40b7dadfe13fe475bc"
+      "canonical": "{\"matched_sop_reference\":null,\"proposed_remediation\":null,\"proposed_sop\":null,\"schema_version\":1,\"sop_match_status\":\"NO_MATCH\"}",
+      "sha256": "816c71e89ece92b368f49f7118aec4397e815a57890626bc0385adb2ba1a5cbe"
     },
     {
       "name": "matched-sop-without-plan",
@@ -18,13 +18,14 @@
         "sop_match_status": "MATCHED",
         "matched_sop_reference": {
           "sop_id": "SOP-PG-001",
-          "version": "3"
+          "version": "3",
+          "content_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         },
         "proposed_sop": null,
         "proposed_remediation": null
       },
-      "canonical": "{\"matched_sop_reference\":{\"sop_id\":\"SOP-PG-001\",\"version\":\"3\"},\"proposed_remediation\":null,\"proposed_sop\":null,\"sop_match_status\":\"MATCHED\"}",
-      "sha256": "7c9c3a717c1c43281456de430ec645ece38d06507b4054f1fd44c1d8348d6cc4"
+      "canonical": "{\"matched_sop_reference\":{\"content_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"sop_id\":\"SOP-PG-001\",\"version\":\"3\"},\"proposed_remediation\":null,\"proposed_sop\":null,\"schema_version\":1,\"sop_match_status\":\"MATCHED\"}",
+      "sha256": "c2ec7b3deee2157935af6c6dafbeb943caaabdadf92184ea261c5f416898ae60"
     },
     {
       "name": "canonical-duplicate-cleanup",
@@ -125,8 +126,8 @@
           ]
         }
       },
-      "canonical": "{\"matched_sop_reference\":null,\"proposed_remediation\":{\"expected_write_operations\":[\"delete 417 duplicate rows from dw.customer\"],\"max_affected_rows\":417,\"precondition_assertions\":[{\"assertion_id\":\"pre-dup\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":417},\"key_columns\":[\"customer_id\"],\"kind\":\"duplicate_count\",\"resource\":\"dw.customer\"}],\"preconditions\":[\"dw.customer has exactly 417 duplicated customer_id rows\"],\"retry_airflow_after_success\":true,\"risk_level\":\"HIGH\",\"steps\":[\"DELETE duplicate rows in dw.customer keeping min(load_id) per customer_id\"],\"stop_conditions\":[\"duplicate count differs from 417\",\"source contains duplicates\"],\"target_resources\":[\"dw.customer\"],\"target_system\":\"postgresql\",\"verification_plan\":{\"assertions\":[{\"assertion_id\":\"post-dup\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":0},\"key_columns\":[\"customer_id\"],\"kind\":\"duplicate_count\",\"resource\":\"dw.customer\"},{\"assertion_id\":\"post-rows\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":100000},\"kind\":\"row_count\",\"resource\":\"dw.customer\"}]},\"verification_rules\":[{\"rule_id\":\"BR-CUST-002\",\"rule_set_id\":\"CUSTOMER-DQ\"}],\"write_tools\":[\"postgres.execute_dml\"]},\"proposed_sop\":{\"category\":\"DUPLICATE_DATA\",\"human_approval_required\":true,\"remediation_steps\":[\"delete duplicate rows keeping the earliest load per business key\"],\"required_evidence\":[\"duplicate key count\",\"source row count\",\"target row count\"],\"risk_level\":\"HIGH\",\"stop_conditions\":[\"source also contains duplicates\",\"duplicate count differs from evidence\"],\"target_system\":\"postgresql\",\"title\":\"Remove duplicate rows after incremental replay\",\"verification_steps\":[\"duplicate count is 0\",\"target row count equals source row count\"]},\"sop_match_status\":\"NO_MATCH\"}",
-      "sha256": "d1c229edfc0ef2463903544505d0a144c62a04e5a677bcd0a756e5eed74af1fe"
+      "canonical": "{\"matched_sop_reference\":null,\"proposed_remediation\":{\"expected_write_operations\":[\"delete 417 duplicate rows from dw.customer\"],\"max_affected_rows\":417,\"precondition_assertions\":[{\"assertion_id\":\"pre-dup\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":417},\"key_columns\":[\"customer_id\"],\"kind\":\"duplicate_count\",\"resource\":\"dw.customer\"}],\"preconditions\":[\"dw.customer has exactly 417 duplicated customer_id rows\"],\"retry_airflow_after_success\":true,\"risk_level\":\"HIGH\",\"steps\":[\"DELETE duplicate rows in dw.customer keeping min(load_id) per customer_id\"],\"stop_conditions\":[\"duplicate count differs from 417\",\"source contains duplicates\"],\"target_resources\":[\"dw.customer\"],\"target_system\":\"postgresql\",\"verification_plan\":{\"assertions\":[{\"assertion_id\":\"post-dup\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":0},\"key_columns\":[\"customer_id\"],\"kind\":\"duplicate_count\",\"resource\":\"dw.customer\"},{\"assertion_id\":\"post-rows\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":100000},\"kind\":\"row_count\",\"resource\":\"dw.customer\"}]},\"verification_rules\":[{\"rule_id\":\"BR-CUST-002\",\"rule_set_id\":\"CUSTOMER-DQ\"}],\"write_tools\":[\"postgres.execute_dml\"]},\"proposed_sop\":{\"category\":\"DUPLICATE_DATA\",\"human_approval_required\":true,\"remediation_steps\":[\"delete duplicate rows keeping the earliest load per business key\"],\"required_evidence\":[\"duplicate key count\",\"source row count\",\"target row count\"],\"risk_level\":\"HIGH\",\"stop_conditions\":[\"source also contains duplicates\",\"duplicate count differs from evidence\"],\"target_system\":\"postgresql\",\"title\":\"Remove duplicate rows after incremental replay\",\"verification_steps\":[\"duplicate count is 0\",\"target row count equals source row count\"]},\"schema_version\":1,\"sop_match_status\":\"NO_MATCH\"}",
+      "sha256": "74efe6941f94cc5ff79456f0a943da8867d2507b26e72bf831be8fd4c03fbe14"
     },
     {
       "name": "unicode-and-scalars",
@@ -190,12 +191,12 @@
           "expected_write_operations": [
             "update_many on crm.customers"
           ],
-          "max_affected_rows": 9007199254740993,
+          "max_affected_rows": 9007199254740991,
           "retry_airflow_after_success": false
         }
       },
-      "canonical": "{\"matched_sop_reference\":{\"sop_id\":\"SOP-MONGO-007\",\"version\":null},\"proposed_remediation\":{\"expected_write_operations\":[\"update_many on crm.customers\"],\"max_affected_rows\":9007199254740993,\"precondition_assertions\":[],\"preconditions\":[],\"retry_airflow_after_success\":false,\"risk_level\":\"MEDIUM\",\"steps\":[],\"stop_conditions\":[\"\\\"quoted\\\" and back\\\\slash\",\"tab\\there\"],\"target_resources\":[],\"target_system\":\"mongodb\",\"verification_plan\":{\"assertions\":[{\"assertion_id\":\"ratio\",\"description\":\"Durchschnitt ≤ 0,5 — 日本語 ✓\",\"expected\":{\"op\":\"lte\",\"value\":0.5},\"kind\":\"sql_scalar\",\"sql\":\"SELECT avg(score) FROM crm.kunden\"},{\"assertion_id\":\"docs\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":0},\"filter\":{\"a\":{\"b\":\"é\",\"y\":null},\"z\":[3,1,2]},\"kind\":\"document_count\",\"resource\":\"crm.customers\"},{\"assertion_id\":\"obj\",\"bucket\":\"landing\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":true},\"key\":\"données/2026-09-30.csv\",\"kind\":\"object_exists\"}]},\"verification_rules\":[],\"write_tools\":null},\"proposed_sop\":null,\"sop_match_status\":\"PARTIAL\"}",
-      "sha256": "d03d96ca05d46c3ded0eda5d0c7e3cff585a42645b3a3d149edb99dd7b6d9bc8"
+      "canonical": "{\"matched_sop_reference\":{\"content_sha256\":null,\"sop_id\":\"SOP-MONGO-007\",\"version\":null},\"proposed_remediation\":{\"expected_write_operations\":[\"update_many on crm.customers\"],\"max_affected_rows\":9007199254740991,\"precondition_assertions\":[],\"preconditions\":[],\"retry_airflow_after_success\":false,\"risk_level\":\"MEDIUM\",\"steps\":[],\"stop_conditions\":[\"\\\"quoted\\\" and back\\\\slash\",\"tab\\there\"],\"target_resources\":[],\"target_system\":\"mongodb\",\"verification_plan\":{\"assertions\":[{\"assertion_id\":\"ratio\",\"description\":\"Durchschnitt ≤ 0,5 — 日本語 ✓\",\"expected\":{\"op\":\"lte\",\"value\":0.5},\"kind\":\"sql_scalar\",\"sql\":\"SELECT avg(score) FROM crm.kunden\"},{\"assertion_id\":\"docs\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":0},\"filter\":{\"a\":{\"b\":\"é\",\"y\":null},\"z\":[3,1,2]},\"kind\":\"document_count\",\"resource\":\"crm.customers\"},{\"assertion_id\":\"obj\",\"bucket\":\"landing\",\"description\":null,\"expected\":{\"op\":\"eq\",\"value\":true},\"key\":\"données/2026-09-30.csv\",\"kind\":\"object_exists\"}]},\"verification_rules\":[],\"write_tools\":null},\"proposed_sop\":null,\"schema_version\":1,\"sop_match_status\":\"PARTIAL\"}",
+      "sha256": "f717f91208e85f8a36fe767f16acb0837b2bcca53ac4932f7e3766b63a74a9b6"
     }
   ]
 }

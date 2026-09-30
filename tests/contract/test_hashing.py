@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Leaves whose value cannot change on its own without changing the payload's structure.
 STRUCTURAL_LEAVES = {"kind", "human_approval_required"}
 ALTERNATIVE_STRINGS = (
-    "PARTIAL", "MATCHED", "mysql", "postgresql", "s3", "LOW", "CRITICAL", "ne", "gt",
+    "PARTIAL", "MATCHED", "mysql", "postgresql", "s3", "LOW", "CRITICAL", "ne", "gt", "f" * 64,
 )  # fmt: skip
 
 
@@ -54,7 +54,7 @@ def mutations(value: Any) -> list[Any]:
     if isinstance(value, bool):
         return [not value]
     if isinstance(value, int):
-        return [value + 1]
+        return [value + 1, value - 1]
     if isinstance(value, float):
         return [value + 0.25]
     if isinstance(value, str):
@@ -240,3 +240,40 @@ def test_canonical_json_rules() -> None:
 def test_canonical_json_rejects_values_without_a_canonical_form(bad: dict[Any, Any]) -> None:
     with pytest.raises(CanonicalizationError):
         canonical_json(bad)
+
+
+@pytest.mark.spec("S03-AC2")
+def test_model_values_pydantic_would_coerce_are_rejected_not_hashed() -> None:
+    # JSON-mode dumps turn sets into (seed-ordered) lists, NaN into null and int keys into
+    # strings. The canonicaliser must refuse such models instead of hashing the coerced form.
+    from pydantic import BaseModel, ConfigDict
+
+    class Loose(BaseModel):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+        value: Any
+
+    for bad in ({"alpha", "beta"}, float("nan"), {1: "x"}, datetime(2026, 9, 30)):
+        with pytest.raises(CanonicalizationError):
+            canonical_json(Loose(value=bad))
+    assert canonical_json(Loose(value={"b": 1, "a": [1.5]})) == b'{"value":{"a":[1.5],"b":1}}'
+
+
+@pytest.mark.spec("S03-AC2")
+@pytest.mark.parametrize(
+    "bad_filter",
+    [{"x": float("nan")}, {"x": [float("inf")]}, {"x": {"alpha", "beta"}}, {"x": b"raw"}],
+    ids=["nan", "nested-infinity", "set", "bytes"],
+)
+def test_free_form_plan_values_must_be_finite_json(bad_filter: dict[str, Any]) -> None:
+    payload = copy.deepcopy(vector("unicode-and-scalars")["payload"])
+    payload["proposed_remediation"]["verification_plan"]["assertions"][1]["filter"] = bad_filter
+    with pytest.raises(ValidationError):
+        ApprovalPayload.model_validate(payload)
+
+
+@pytest.mark.spec("S03-AC2")
+def test_unknown_schema_version_is_rejected() -> None:
+    payload = vector("minimal-no-match")["payload"] | {"schema_version": 2}
+    with pytest.raises(ValidationError, match="schema_version"):
+        ApprovalPayload.model_validate(payload)
+    assert '"schema_version":1' in vector("minimal-no-match")["canonical"]

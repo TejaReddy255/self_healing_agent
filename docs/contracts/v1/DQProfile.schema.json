@@ -42,7 +42,9 @@
           "type": "boolean"
         },
         "params": {
-          "additionalProperties": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
           "title": "Params",
           "type": "object"
         },
@@ -83,7 +85,8 @@
       ],
       "title": "DQProfileEntry",
       "type": "object"
-    }
+    },
+    "JsonValue": {}
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": {
