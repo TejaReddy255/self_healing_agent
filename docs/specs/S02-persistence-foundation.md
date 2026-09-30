@@ -1,7 +1,7 @@
 ---
 id: S02
 title: Persistence foundation, migrations, audit and activity
-status: IN_REVIEW
+status: DONE
 phase: 0
 owner_agent: data-engineer
 reviewers: [code-reviewer, data-engineer]
@@ -162,3 +162,4 @@ Run on 2026-09-30, Windows 11 (Smart App Control enforcing), Python 3.12.10, Doc
   port 55432. Latent S01 issue fixed along the way: an empty `API_TOKENS_FILE=` / `API_TOKENS=` now means
   "not set" (previously became the path `.`), with unit tests. CI gained an `integration` job. IN_REVIEW.
 - 2026-09-30 — review fixes applied (code-reviewer and data-engineer): migration 0002, NaN/NUL-safe audit, `record(conn=)`, migration timeout profile, 503 on DB down, event-trigger no-DDL test, WS hardening. AC4 wording updated to the event-trigger method. Deferred items recorded in S15/S25/S26. Awaiting human acceptance.
+- 2026-09-30 — accepted by product owner. Status DONE; merged to `main`.
