@@ -1,0 +1,789 @@
+{
+  "$defs": {
+    "CountExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "lt",
+            "lte",
+            "gt",
+            "gte"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "minimum": 0,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "value"
+      ],
+      "title": "CountExpectation",
+      "type": "object"
+    },
+    "DQRuleRef": {
+      "additionalProperties": false,
+      "description": "Reference to a governed business rule (src §33.5), e.g. ``BR-CUST-002``.",
+      "properties": {
+        "rule_id": {
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "rule_set_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Set Id"
+        }
+      },
+      "required": [
+        "rule_id"
+      ],
+      "title": "DQRuleRef",
+      "type": "object"
+    },
+    "DocumentCountAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "expected": {
+          "$ref": "#/$defs/CountExpectation"
+        },
+        "filter": {
+          "additionalProperties": true,
+          "title": "Filter",
+          "type": "object"
+        },
+        "kind": {
+          "const": "document_count",
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Resource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "kind",
+        "resource",
+        "expected"
+      ],
+      "title": "DocumentCountAssertion",
+      "type": "object"
+    },
+    "DuplicateCountAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "expected": {
+          "$ref": "#/$defs/CountExpectation"
+        },
+        "key_columns": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Key Columns",
+          "type": "array"
+        },
+        "kind": {
+          "const": "duplicate_count",
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Resource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "kind",
+        "resource",
+        "key_columns",
+        "expected"
+      ],
+      "title": "DuplicateCountAssertion",
+      "type": "object"
+    },
+    "ExistsExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "eq",
+          "default": "eq",
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "ExistsExpectation",
+      "type": "object"
+    },
+    "ObjectCountAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "bucket": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "expected": {
+          "$ref": "#/$defs/CountExpectation"
+        },
+        "kind": {
+          "const": "object_count",
+          "title": "Kind",
+          "type": "string"
+        },
+        "prefix": {
+          "default": "",
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "kind",
+        "bucket",
+        "expected"
+      ],
+      "title": "ObjectCountAssertion",
+      "type": "object"
+    },
+    "ObjectExistsAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "bucket": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "expected": {
+          "$ref": "#/$defs/ExistsExpectation"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "const": "object_exists",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "kind",
+        "bucket",
+        "key",
+        "expected"
+      ],
+      "title": "ObjectExistsAssertion",
+      "type": "object"
+    },
+    "RemediationPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_write_operations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Expected Write Operations",
+          "type": "array"
+        },
+        "max_affected_rows": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Affected Rows"
+        },
+        "precondition_assertions": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "document_count": "#/$defs/DocumentCountAssertion",
+                "duplicate_count": "#/$defs/DuplicateCountAssertion",
+                "object_count": "#/$defs/ObjectCountAssertion",
+                "object_exists": "#/$defs/ObjectExistsAssertion",
+                "row_count": "#/$defs/RowCountAssertion",
+                "sql_scalar": "#/$defs/SqlScalarAssertion"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DuplicateCountAssertion"
+              },
+              {
+                "$ref": "#/$defs/RowCountAssertion"
+              },
+              {
+                "$ref": "#/$defs/SqlScalarAssertion"
+              },
+              {
+                "$ref": "#/$defs/ObjectExistsAssertion"
+              },
+              {
+                "$ref": "#/$defs/ObjectCountAssertion"
+              },
+              {
+                "$ref": "#/$defs/DocumentCountAssertion"
+              }
+            ]
+          },
+          "title": "Precondition Assertions",
+          "type": "array"
+        },
+        "preconditions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "retry_airflow_after_success": {
+          "default": true,
+          "title": "Retry Airflow After Success",
+          "type": "boolean"
+        },
+        "risk_level": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "steps": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "stop_conditions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Stop Conditions",
+          "type": "array"
+        },
+        "target_resources": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Target Resources",
+          "type": "array"
+        },
+        "target_system": {
+          "$ref": "#/$defs/SystemName"
+        },
+        "verification_plan": {
+          "$ref": "#/$defs/VerificationPlan"
+        },
+        "verification_rules": {
+          "items": {
+            "$ref": "#/$defs/DQRuleRef"
+          },
+          "title": "Verification Rules",
+          "type": "array"
+        },
+        "write_tools": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Write Tools"
+        }
+      },
+      "required": [
+        "target_system",
+        "risk_level",
+        "verification_plan"
+      ],
+      "title": "RemediationPlan",
+      "type": "object"
+    },
+    "RiskLevel": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    },
+    "RowCountAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "expected": {
+          "$ref": "#/$defs/CountExpectation"
+        },
+        "kind": {
+          "const": "row_count",
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Resource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "kind",
+        "resource",
+        "expected"
+      ],
+      "title": "RowCountAssertion",
+      "type": "object"
+    },
+    "SOPMatchStatus": {
+      "enum": [
+        "MATCHED",
+        "NO_MATCH",
+        "PARTIAL"
+      ],
+      "title": "SOPMatchStatus",
+      "type": "string"
+    },
+    "SOPProposal": {
+      "additionalProperties": false,
+      "description": "A generated SOP (W3). Installed only when the review containing it is approved (ADR-008).",
+      "properties": {
+        "category": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Category",
+          "type": "string"
+        },
+        "human_approval_required": {
+          "const": true,
+          "default": true,
+          "title": "Human Approval Required",
+          "type": "boolean"
+        },
+        "remediation_steps": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Remediation Steps",
+          "type": "array"
+        },
+        "required_evidence": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "risk_level": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "stop_conditions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Stop Conditions",
+          "type": "array"
+        },
+        "target_system": {
+          "$ref": "#/$defs/SystemName"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "verification_steps": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Verification Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "category",
+        "target_system",
+        "risk_level",
+        "remediation_steps"
+      ],
+      "title": "SOPProposal",
+      "type": "object"
+    },
+    "SOPReference": {
+      "additionalProperties": false,
+      "description": "Pins the approved SOP (and version, when catalogued) that a plan follows.",
+      "properties": {
+        "sop_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Sop Id",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "sop_id"
+      ],
+      "title": "SOPReference",
+      "type": "object"
+    },
+    "ScalarExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "lt",
+            "lte",
+            "gt",
+            "gte"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "op",
+        "value"
+      ],
+      "title": "ScalarExpectation",
+      "type": "object"
+    },
+    "SqlScalarAssertion": {
+      "additionalProperties": false,
+      "description": "A single-value read-only query (validated read-only before execution, S19).",
+      "properties": {
+        "assertion_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "expected": {
+          "$ref": "#/$defs/ScalarExpectation"
+        },
+        "kind": {
+          "const": "sql_scalar",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sql": {
+          "minLength": 1,
+          "title": "Sql",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "kind",
+        "sql",
+        "expected"
+      ],
+      "title": "SqlScalarAssertion",
+      "type": "object"
+    },
+    "SystemName": {
+      "enum": [
+        "postgresql",
+        "mysql",
+        "s3",
+        "mongodb"
+      ],
+      "title": "SystemName",
+      "type": "string"
+    },
+    "VerificationPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "assertions": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "document_count": "#/$defs/DocumentCountAssertion",
+                "duplicate_count": "#/$defs/DuplicateCountAssertion",
+                "object_count": "#/$defs/ObjectCountAssertion",
+                "object_exists": "#/$defs/ObjectExistsAssertion",
+                "row_count": "#/$defs/RowCountAssertion",
+                "sql_scalar": "#/$defs/SqlScalarAssertion"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DuplicateCountAssertion"
+              },
+              {
+                "$ref": "#/$defs/RowCountAssertion"
+              },
+              {
+                "$ref": "#/$defs/SqlScalarAssertion"
+              },
+              {
+                "$ref": "#/$defs/ObjectExistsAssertion"
+              },
+              {
+                "$ref": "#/$defs/ObjectCountAssertion"
+              },
+              {
+                "$ref": "#/$defs/DocumentCountAssertion"
+              }
+            ]
+          },
+          "title": "Assertions",
+          "type": "array"
+        }
+      },
+      "title": "VerificationPlan",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Exactly what a reviewer approves. Its canonical hash is the approval boundary.",
+  "properties": {
+    "matched_sop_reference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SOPReference"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proposed_remediation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RemediationPlan"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proposed_sop": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SOPProposal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sop_match_status": {
+      "$ref": "#/$defs/SOPMatchStatus"
+    }
+  },
+  "required": [
+    "sop_match_status",
+    "matched_sop_reference",
+    "proposed_sop",
+    "proposed_remediation"
+  ],
+  "title": "ApprovalPayload",
+  "type": "object"
+}

@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "Checkpoint": {
+      "enum": [
+        "SOURCE",
+        "STAGING",
+        "TARGET",
+        "RECONCILIATION",
+        "SCHEDULED"
+      ],
+      "title": "Checkpoint",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Input to ``DQAgentAdapter.run`` (src §23.1).",
+  "properties": {
+    "checkpoint": {
+      "$ref": "#/$defs/Checkpoint"
+    },
+    "dag_id": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dag Id"
+    },
+    "pipeline_id": {
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+      "title": "Pipeline Id",
+      "type": "string"
+    },
+    "request_key": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Request Key",
+      "type": "string"
+    },
+    "rule_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Ids"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    }
+  },
+  "required": [
+    "pipeline_id",
+    "checkpoint",
+    "request_key"
+  ],
+  "title": "DQExecutionContext",
+  "type": "object"
+}

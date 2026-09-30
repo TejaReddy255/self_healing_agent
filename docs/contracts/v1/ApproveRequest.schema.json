@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Body of ``POST /reviews/{id}/approve``: CAS on what the reviewer saw (ADR-006).",
+  "properties": {
+    "comment": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    },
+    "expected_payload_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Payload Hash",
+      "type": "string"
+    },
+    "expected_revision": {
+      "exclusiveMinimum": 0,
+      "title": "Expected Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "expected_revision",
+    "expected_payload_hash"
+  ],
+  "title": "ApproveRequest",
+  "type": "object"
+}

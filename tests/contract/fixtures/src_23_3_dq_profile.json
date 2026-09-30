@@ -1,0 +1,13 @@
+{
+  "SOURCE": [
+    {"agent": "profiling", "enabled": true, "blocking": false},
+    {"agent": "custom_dq", "enabled": true, "blocking": true}
+  ],
+  "TARGET": [
+    {"agent": "custom_dq", "enabled": true, "blocking": true},
+    {"agent": "statistical", "enabled": true, "blocking": false}
+  ],
+  "RECONCILIATION": [
+    {"agent": "recon", "enabled": true, "blocking": true}
+  ]
+}

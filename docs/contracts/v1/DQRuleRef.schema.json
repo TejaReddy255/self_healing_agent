@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Reference to a governed business rule (src §33.5), e.g. ``BR-CUST-002``.",
+  "properties": {
+    "rule_id": {
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "rule_set_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Set Id"
+    }
+  },
+  "required": [
+    "rule_id"
+  ],
+  "title": "DQRuleRef",
+  "type": "object"
+}

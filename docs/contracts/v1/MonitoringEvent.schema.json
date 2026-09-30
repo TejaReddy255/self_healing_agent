@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "MonitoringSource": {
+      "enum": [
+        "AIRFLOW",
+        "DQ",
+        "SLA",
+        "DATABASE",
+        "MCP"
+      ],
+      "title": "MonitoringSource",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "INFO",
+        "WARNING",
+        "CRITICAL"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A deterministic signal from a monitor or an Airflow/DQ callback.\n\n``event_id`` is assigned on persistence. ``idempotency_key`` is caller-supplied or derived at\ningest (S13). ``resource`` and ``rule_id`` feed the incident fingerprint (src §24.2).",
+  "properties": {
+    "actual": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actual"
+    },
+    "dag_id": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dag Id"
+    },
+    "detected_at": {
+      "format": "date-time",
+      "title": "Detected At",
+      "type": "string"
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
+    "event_type": {
+      "maxLength": 64,
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "evidence": {
+      "additionalProperties": true,
+      "title": "Evidence",
+      "type": "object"
+    },
+    "expected": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected"
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Idempotency Key"
+    },
+    "pipeline_id": {
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+      "title": "Pipeline Id",
+      "type": "string"
+    },
+    "resource": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resource"
+    },
+    "rule_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Id"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "source": {
+      "$ref": "#/$defs/MonitoringSource"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    }
+  },
+  "required": [
+    "pipeline_id",
+    "source",
+    "event_type",
+    "severity",
+    "detected_at"
+  ],
+  "title": "MonitoringEvent",
+  "type": "object"
+}

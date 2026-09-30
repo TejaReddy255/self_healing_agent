@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Pins the approved SOP (and version, when catalogued) that a plan follows.",
+  "properties": {
+    "sop_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Sop Id",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    }
+  },
+  "required": [
+    "sop_id"
+  ],
+  "title": "SOPReference",
+  "type": "object"
+}

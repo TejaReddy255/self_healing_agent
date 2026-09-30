@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Body of ``POST /agent``: the failed Airflow run (and optionally task) to analyse.",
+  "properties": {
+    "run_id": {
+      "maxLength": 250,
+      "minLength": 1,
+      "pattern": "^[^\\x00-\\x1f]+$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "workflow_id": {
+      "maxLength": 250,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+      "title": "Workflow Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "run_id"
+  ],
+  "title": "PipelineFailureRequest",
+  "type": "object"
+}

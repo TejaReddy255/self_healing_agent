@@ -1,7 +1,7 @@
 ---
 id: S03
 title: Shared domain contracts and canonical hashing
-status: DRAFT
+status: IN_PROGRESS
 phase: 0
 owner_agent: backend-engineer
 reviewers: [code-reviewer, solution-architect, security-reviewer]
@@ -10,8 +10,8 @@ blocked_by: []
 traces: [FR-031, FR-041, FR-081, NFR-060]
 source_sections: ["src §6.2", "src §9.2", "src §21.3", "src §22.2", "src §23", "src §25", "src §35.6"]
 tags: [contract, security-sensitive]
-approved_by:
-approved_on:
+approved_by: product owner
+approved_on: 2026-09-30
 ---
 
 # S03 — Shared domain contracts and canonical hashing
@@ -95,3 +95,4 @@ Revert. No persisted data depends on it yet.
 
 ## Changelog
 - 2026-09-29 — created (DRAFT)
+- 2026-09-30 — approved by product owner ("approve S03 and implement it"). Status IN_PROGRESS.

@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "RiskLevel": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    },
+    "SystemName": {
+      "enum": [
+        "postgresql",
+        "mysql",
+        "s3",
+        "mongodb"
+      ],
+      "title": "SystemName",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A generated SOP (W3). Installed only when the review containing it is approved (ADR-008).",
+  "properties": {
+    "category": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Category",
+      "type": "string"
+    },
+    "human_approval_required": {
+      "const": true,
+      "default": true,
+      "title": "Human Approval Required",
+      "type": "boolean"
+    },
+    "remediation_steps": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Remediation Steps",
+      "type": "array"
+    },
+    "required_evidence": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Required Evidence",
+      "type": "array"
+    },
+    "risk_level": {
+      "$ref": "#/$defs/RiskLevel"
+    },
+    "stop_conditions": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Stop Conditions",
+      "type": "array"
+    },
+    "target_system": {
+      "$ref": "#/$defs/SystemName"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "verification_steps": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Verification Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "category",
+    "target_system",
+    "risk_level",
+    "remediation_steps"
+  ],
+  "title": "SOPProposal",
+  "type": "object"
+}

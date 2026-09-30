@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "Checkpoint": {
+      "enum": [
+        "SOURCE",
+        "STAGING",
+        "TARGET",
+        "RECONCILIATION",
+        "SCHEDULED"
+      ],
+      "title": "Checkpoint",
+      "type": "string"
+    },
+    "DQAgentName": {
+      "description": "Logical DQ agent names (architecture §18 C9).",
+      "enum": [
+        "custom_dq",
+        "recon",
+        "profiling",
+        "statistical",
+        "anomaly",
+        "preprocessing"
+      ],
+      "title": "DQAgentName",
+      "type": "string"
+    },
+    "DQProfileEntry": {
+      "additionalProperties": false,
+      "description": "One agent in a checkpoint's DQ profile (canonical shape, architecture §18 C9).",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/DQAgentName"
+        },
+        "blocking": {
+          "default": false,
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "rules": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rules"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schedule"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "title": "DQProfileEntry",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "items": {
+      "$ref": "#/$defs/DQProfileEntry"
+    },
+    "type": "array"
+  },
+  "description": "Per-checkpoint DQ agent selection, e.g. ``{\"TARGET\": [{\"agent\": \"custom_dq\", ...}]}``.",
+  "propertyNames": {
+    "$ref": "#/$defs/Checkpoint"
+  },
+  "title": "DQProfile",
+  "type": "object"
+}
