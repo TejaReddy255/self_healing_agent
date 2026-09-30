@@ -1,7 +1,7 @@
 ---
 id: S03
 title: Shared domain contracts and canonical hashing
-status: IN_REVIEW
+status: DONE
 phase: 0
 owner_agent: backend-engineer
 reviewers: [code-reviewer, solution-architect, security-reviewer]
@@ -124,7 +124,7 @@ Handed to downstream specs (recorded in each spec's Open issues):
 - **S17:** `check_id`/`metric` mapping.
 - **S19:** identifier quoting and Mongo operator denial in tools.
 - **S20:** operator recovery confirmation.
-- **Contract freeze sign-off** (P0 exit): the product owner reviews `docs/contracts/v1/`.
+- ~~Contract freeze sign-off~~: **signed off by the product owner on 2026-10-01** (see Changelog).
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
@@ -166,3 +166,5 @@ Handed to downstream specs (recorded in each spec's Open issues):
 - 2026-09-29 — created (DRAFT)
 - 2026-09-30 — approved by product owner ("approve S03 and implement it"). Status IN_PROGRESS.
 - 2026-09-30 — implemented. Reviews by code-reviewer, security-reviewer and solution-architect were addressed. Product owner decided both conflicts: AC3 moved to `ApprovalPayload`, and architecture §7.4/§7.5 were amended. Status IN_REVIEW, pending acceptance and the contract freeze sign-off.
+- 2026-10-01 — **Contract freeze v1 signed off** by the product owner. Confirmed as frozen: `retry_airflow_after_success` defaults to true; incident categories stay at the 5 v1 values; verification assertions stay at the 6 v1 kinds. From here, any change to `ApprovalPayload` or its nested models needs a new `schema_version` and an ADR.
+- 2026-10-01 — accepted by product owner. Status DONE; merged to `main`.
