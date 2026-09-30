@@ -1,5 +1,10 @@
-# Normalise line endings in the repository; Windows checkouts may use CRLF in the working tree.
-* text=auto
-# Migrations and shell scripts must stay LF everywhere (checksums, container entrypoints).
+# Keep LF line endings in the repository and in working copies on every platform, so
+# formatters, migration checksums and container scripts behave identically on Windows and Linux.
+* text=auto eol=lf
 *.sql text eol=lf
 *.sh  text eol=lf
+# Binary assets are never normalised.
+*.png binary
+*.jpg binary
+*.parquet binary
+*.xlsx binary
