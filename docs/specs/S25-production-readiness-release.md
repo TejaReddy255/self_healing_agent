@@ -25,7 +25,7 @@ Package, deploy, operate and release the platform with evidence. Uses the `produ
   base images, health checks. **Docker Compose production stack for a VM** (OQ-07) matching the architecture §4 topology,
   with Kubernetes-compatible liveness/readiness endpoints; secrets via environment files outside git or a secret manager.
 - Migration rollout procedure (`migrate verify` → `up` before deploy; the app refuses readiness while migrations are pending).
-- Backup and restore procedure for the operational DB, with a restore drill.
+- Backup and restore procedure for the operational DB **and the `dq-storage` volume** (ADR-014), with a restore drill.
 - Retention purge job per use-case-spec §7 (dry-run mode, audited).
 - Runbooks in `docs/runbooks/`: remediation job `INTERRUPTED_DURING_EXECUTION`, stuck recovery, MCP server down,
   metadata reload failure, Gemini outage/quota, rotating tokens, replaying a failed callback.

@@ -22,7 +22,7 @@ lock AI behaviour behind versioned evals with release thresholds (`docs/evaluati
 
 ## In scope
 - `deploy/docker-compose.e2e.yml`: operational PG, MySQL source, PG target, MCP servers (pg, mysql),
-  API, monitoring worker, job workers, **DQ service + DQ worker + MinIO** (S26), and Airflow standalone with a `customer_daily_load` DAG (extract → load,
+  API, monitoring worker, job workers, **DQ service + DQ worker + `dq-storage` volume** (S26), and Airflow standalone with a `customer_daily_load` DAG (extract → load,
   with a `REPLAY_BUG` switch that double-loads 417 rows → TARGET DQ checkpoint → RECONCILIATION checkpoint)
   using the S13 callback and the S17 checkpoint helper.
 - `tests/e2e/test_canonical_duplicate_customer.py`: drives the scenario and asserts **each step in order**

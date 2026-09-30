@@ -289,8 +289,8 @@ Values marked *(proposed)* are initial targets for confirmation at G1.
 | Operation audit, LLM usage | Operational PG | Audit | 13 months minimum | Platform / security |
 | DQ runs/results | Operational PG | Internal; failed-row samples masked | 180 days (results), 13 months (run summaries) | DQ team |
 | Runtime-approved SOPs | Operational PG (`approved_sops`) | Internal / governed | Indefinite | Reviewers |
-| Uploaded files and derived datasets | Object store `dq-files` + schema `dq_service` | **Potentially PII** (declared per upload) | Soft delete + 30-day purge *(proposed)*, unless referenced | DQ analysts |
-| DQ reports, model artifacts | Object store `dq-artifacts` | Internal; masked samples | 13 months (reports), while referenced (models) | DQ team |
+| Uploaded files and derived datasets | Local volume `dq-storage` (`files/`) + schema `dq_service` | **Potentially PII** (declared per upload) | Soft delete + 30-day purge *(proposed)*, unless referenced | DQ analysts |
+| DQ reports, model artifacts | Local volume `dq-storage` (`artifacts/`) | Internal; masked samples | 13 months (reports), while referenced (models) | DQ team |
 
 ## 8. Decision classification
 

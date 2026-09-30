@@ -44,7 +44,7 @@ source or target systems.
 - **S28-AC3** The normalization fitted parameters are recorded, and applying `params_from` to new data uses the stored parameters (not refitted). An inverse-transform property test holds for min-max, z-score and robust.
 - **S28-AC4** A `derive`/`filter` expression outside the DSL allowlist is rejected before execution.
 - **S28-AC5** The output version's lineage references the exact input fingerprints and steps. Re-running the same request yields a byte-identical output hash (NFR-070).
-- **S28-AC6** No preprocessing code path opens a write-capable connection to PostgreSQL, MySQL or S3 source buckets (connector-level test and import check). Output goes only to the `dq-files` bucket.
+- **S28-AC6** No preprocessing code path opens a write-capable connection to PostgreSQL, MySQL or S3 source buckets (connector-level test and import check). Output goes only to File Manager storage (`files/` on the `dq-storage` volume, via `FileStorage`).
 - **S28-AC7** `dry_run` stores nothing.
 
 ## Test plan

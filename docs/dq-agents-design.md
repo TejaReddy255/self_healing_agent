@@ -46,19 +46,19 @@ flowchart LR
     LIB --> ENG[DuckDB engine]
     LIB --> ML[numpy / scipy / scikit-learn on bounded samples]
     LIB --> CON[Read-only connectors<br/>PostgreSQL · MySQL · S3 objects · files]
-    API & W --> OBJ[(Object store<br/>dq-files · dq-artifacts)]
+    API & W --> OBJ[(Local volume dq-storage<br/>files/ · artifacts/)]
     API & W --> DB[(PostgreSQL schema dq_service)]
 ```
 
 | Package | Responsibility | Depends on |
 |---|---|---|
 | `dq_agents/core/` | Contracts, `DatasetRef`, fingerprinting, masking, safe-expression DSL, rule compiler, sampling, reports | stdlib, pydantic, sqlglot, duckdb, pyarrow |
-| `dq_agents/io/` | Read-only connectors: file versions (object store), PostgreSQL, MySQL, S3 objects | core |
+| `dq_agents/io/` | Read-only connectors: file versions (via `FileStorage`), PostgreSQL, MySQL, S3 objects | core |
 | `dq_agents/agents/{preprocessing,profiling,custom_dq,recon,statistical,anomaly}/` | Algorithms. Pure functions of (inputs, params, seed) → `AgentRunResult` | core, io, numpy, scipy, scikit-learn |
 | `dq_agents/reports/` | JSON canonical report → HTML (autoescaped Jinja2) / Markdown | core |
 | `dq_service/api/` | FastAPI: files, jobs, models, presets, agent catalog, health | dq_agents |
 | `dq_service/jobs/` | Durable job queue and worker (same pattern as ADR-004) | dq_agents |
-| `dq_service/storage/`, `repositories/`, `migrations/` | Object store and schema `dq_service` | — |
+| `dq_service/storage/`, `repositories/`, `migrations/` | `FileStorage` (local volume, ADR-014) and schema `dq_service` | — |
 
 **Boundary rules:** `dq_agents` and `dq_service` import nothing from `backend`, and `backend` imports nothing from
 them. The only coupling is the DQ service HTTP API (versioned `/v1`). `dq_agents` has **no LLM dependency**.
@@ -110,7 +110,7 @@ DQFinding        { finding_id, rule_id|check_id, dimension?, status, blocking, s
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health`, `/health/ready` | Liveness / readiness (DB, object store, connections) |
+| GET | `/health`, `/health/ready` | Liveness / readiness (DB, storage volume writable, connections) |
 | GET | `/v1/agents` | Catalog: agents, operations, JSON Schemas of params |
 | POST | `/v1/files` | Multipart upload → file + version 1 (or new version with `file_id`) |
 | GET | `/v1/files`, `/v1/files/{id}`, `/v1/files/{id}/versions/{v}/preview` | List, detail, preview |
@@ -130,7 +130,7 @@ created_by, lineage jsonb), `jobs` (request_key UNIQUE, agent, operation, status
 params_hash, error), `job_results` (result jsonb, report_uri), `artifacts`, `models`,
 `model_versions` (algorithm, params, feature_schema, training_fingerprint, metrics, artifact_uri,
 signature), `presets` (name, version, steps jsonb, created_by).
-Object store buckets: `dq-files` (uploads, derived datasets), `dq-artifacts` (reports, models).
+File storage (ADR-014): local Docker volume `dq-storage` with `files/` (uploads, derived datasets) and `artifacts/` (reports, models), behind the `FileStorage` protocol.
 
 ## 7. File Manager and "Pipeline Settings"
 

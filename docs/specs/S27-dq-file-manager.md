@@ -38,9 +38,9 @@ stays in metadata (architecture C12).
 
 ## Acceptance criteria
 - **S27-AC1** A valid CSV, Parquet, JSON and XLSX each upload to version 1 with schema, row count and SHA-256. Re-upload → version 2. Versions are immutable (no update path).
-- **S27-AC2** Rejected: oversized files; extension/magic mismatch; unsupported types; an XLSX exceeding the decompressed-size cap (zip bomb fixture); files exceeding row/column caps. Each is rejected with a specific error code and no stored object.
+- **S27-AC2** Rejected: oversized files; extension/magic mismatch; unsupported types; an XLSX exceeding the decompressed-size cap (zip bomb fixture); files exceeding row/column caps. Each is rejected with a specific error code and no stored file.
 - **S27-AC3** Preview returns ≤ the requested rows with PII columns masked, and inferred types per column.
-- **S27-AC4** Soft delete hides the file from listings. Versions referenced by lineage or models are not purged. The purge job removes only eligible objects (dry-run and real-run test).
+- **S27-AC4** Soft delete hides the file from listings. Versions referenced by lineage or models are not purged. The purge job removes only eligible files from the storage volume (dry-run and real-run test).
 - **S27-AC5** Presets reject steps with unknown agents/operations or params failing the agent schema. PUT creates a new version.
 - **S27-AC6** A model artifact with a tampered signature is refused on load (`ArtifactSignatureError`). No endpoint accepts a user-uploaded model binary.
 - **S27-AC7** CSV/XLSX preview and exports neutralize formula-injection prefixes.
@@ -48,12 +48,12 @@ stays in metadata (architecture C12).
 ## Test plan
 | AC | Layer | Test(s) |
 |---|---|---|
-| AC1–AC4, AC7 | integration (MinIO) | `tests/integration/dq_service/test_files.py` |
+| AC1–AC4, AC7 | integration (temporary storage root) | `tests/integration/dq_service/test_files.py` |
 | AC5 | unit | `tests/unit/dq_service/test_presets.py` |
 | AC6 | unit | `tests/unit/dq_agents/test_artifact_signing.py` |
 
 ## Rollback
-Revert. Objects remain in the bucket. The schema is additive.
+Revert. Files remain on the `dq-storage` volume. The schema is additive.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

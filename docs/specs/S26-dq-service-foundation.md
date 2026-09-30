@@ -33,7 +33,10 @@ Each agent slice then only adds algorithms.
   `compile(expr, dialect)` for postgres/mysql/duckdb.
 - `dq_agents/core/masking.py`, `sampling.py` (reservoir/random with seed; DB-side sampling strategies per dialect),
   `fingerprint.py` (file: SHA-256; table: row count + `max(updated_at)` when declared, else a `snapshot_marker` timestamp).
-- `dq_agents/io/`: `FileVersionReader` (object store → DuckDB), `PostgresReader`, `MySQLReader`, `S3ObjectReader`.
+- `dq_service/storage/`: `FileStorage` protocol (`put`, `open`, `exists`, `delete`, `path_for`) with `LocalVolumeStorage`
+  rooted at `DQ_STORAGE_ROOT` (ADR-014, amended). Keys are validated and resolved strictly inside the root. Writes are
+  atomic (temp file + rename).
+- `dq_agents/io/`: `FileVersionReader` (`FileStorage` → DuckDB), `PostgresReader`, `MySQLReader`, `S3ObjectReader`.
   All are read-only (connections set `default_transaction_read_only` / `SET SESSION TRANSACTION READ ONLY`), with statement timeouts.
 - `dq_agents/engine/duckdb.py`: per-job in-memory DuckDB with memory limit, `enable_external_access=false` for
   user expressions, and temp directory per job.
@@ -44,7 +47,7 @@ Each agent slice then only adds algorithms.
 - A registered no-op `echo` agent used to prove the pipeline end to end.
 - `tests/dq/synthetic.py`: seeded synthetic dataset generator with injected-issue ground truth (nulls, duplicates,
   out-of-range, invalid formats, outliers, distribution shift, anomalies), used by S27–S33 and the E-DQ evals.
-- Compose: `dq-service`, `dq-worker`, MinIO (if not already added by S24), `dq_service` schema.
+- Compose: `dq-service`, `dq-worker`, a named volume `dq-storage` mounted by both at `DQ_STORAGE_ROOT`, and the `dq_service` schema.
 - Extend CI (ruff, mypy, pytest) and `CLAUDE.md` Commands to cover `dq_agents/` and `dq_service/`. Add DQ dependencies
   (duckdb, sqlglot, pyarrow, numpy, scipy, scikit-learn, jinja2, openpyxl) to a separate dependency group so the
   backend image does not ship them.
@@ -55,7 +58,7 @@ Agent algorithms (S28–S33), File Manager features beyond the storage primitive
 
 ## Configuration
 DQ service: `DQ_SERVICE_TOKEN_SHA256`, `DQ_DB_DSN` (secret), `DQ_CONNECTIONS` (secret map of read-only DSNs),
-`DQ_OBJECT_STORE_*` (secret keys), `DQ_MAX_SAMPLE_ROWS=100000`, `DQ_JOB_TIMEOUT_S=900`,
+`DQ_STORAGE_ROOT` (required; e.g. `/data/dq-storage` in containers), `DQ_MAX_SAMPLE_ROWS=100000`, `DQ_JOB_TIMEOUT_S=900`,
 `DQ_DUCKDB_MEMORY_LIMIT=2GB`, `DQ_WORKER_CONCURRENCY=2`.
 Backend: `DQ_SERVICE_URL`, `DQ_SERVICE_TOKEN` (secret), `DQ_CLIENT_TIMEOUT_S=30`.
 
@@ -70,6 +73,9 @@ Backend: `DQ_SERVICE_URL`, `DQ_SERVICE_TOKEN` (secret), `DQ_CLIENT_TIMEOUT_S=30`
 - **S26-AC8** Unauthenticated or wrong-token calls to the DQ service → 401. Logs contain no DSNs or tokens.
 - **S26-AC9** The `DQServiceClient` handles 202 → polling → result, timeouts (typed `DQServiceUnavailable`) and ERROR jobs, tested against a respx fake of the DQ API.
 - **S26-AC10** The synthetic generator is deterministic per seed and emits a ground-truth manifest.
+- **S26-AC11** `LocalVolumeStorage` rejects keys that escape `DQ_STORAGE_ROOT` (`..`, absolute paths, drive letters,
+  symlinks pointing outside), and a write interrupted mid-way never leaves a partial file under its final key.
+  Readiness reports the storage root as down when it is missing or not writable.
 
 ## Test plan
 | AC | Layer | Test(s) |
@@ -90,3 +96,4 @@ Stop `dq-service`/`dq-worker`. The backend degrades DQ readiness only.
 
 ## Changelog
 - 2026-09-30 — created (DRAFT)
+- 2026-09-30 — ADR-014 amended: local volume instead of MinIO. Added `FileStorage`/`LocalVolumeStorage`, `DQ_STORAGE_ROOT`, S26-AC11.

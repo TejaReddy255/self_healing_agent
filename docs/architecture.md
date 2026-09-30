@@ -401,8 +401,8 @@ One generic job pattern (ADR-004), implemented once in `backend/jobs/base.py` (S
 ## 19. Architecture Decision Records
 
 Format: **Decision · Context · Consequences · Status.** ADR-001 to ADR-015 were **Accepted** at G2 on 2026-09-30.
-ADR-014's storage backend (object store vs. local volume vs. database) is still being chosen and may be amended through
-change control (`docs/sdd-workflow.md` §8) before S27.
+ADR-014 was amended on 2026-09-30 (product owner decision): file contents live on a local Docker volume, not an
+object store.
 
 **ADR-001 Greenfield interpretation.** Build CURRENT capabilities as baseline and documented gaps directly in
 target form (see `docs/sdd-workflow.md` §2). *Context:* no existing code. *Consequences:* no
@@ -458,7 +458,7 @@ chat model, DQ adapters and clock. CI needs no external services. Integration/E2
 Docker. Live-LLM evals run on demand or nightly.
 
 **ADR-013 The DQ agent suite is an independent in-repo service.** The `dq_agents` library and `dq_service`
-(API + workers + schema `dq_service` + object store) implement File Manager, Preprocessing, Profiling, Custom DQ,
+(API + workers + schema `dq_service` + local file-storage volume) implement File Manager, Preprocessing, Profiling, Custom DQ,
 Recon, Statistical Check and Anomaly Detection. No imports cross between the backend and the DQ packages. The only coupling is
 the versioned `/v1` HTTP API with consumer contract tests. The DQ service has no LLM dependency.
 *Context:* the user requested these agents for this greenfield project (2026-09-30), which resolves OQ-01.
@@ -466,10 +466,18 @@ the versioned `/v1` HTTP API with consumer contract tests. The DQ service has no
 Adds one service and one worker to deploy. *Rejected:* embedding DQ code in the backend (violates invariant 10 and
 couples control-plane availability to heavy compute); invoking agents through MCP (not designed for bulk data).
 
-**ADR-014 File Manager storage and artifact trust.** Uploads are stored as immutable, SHA-256-addressed versions in
-an object store (MinIO in dev, S3 in prod), converted to canonical Parquet, with metadata in schema `dq_service`.
-Model artifacts are produced only by the service, HMAC-signed and verified before load. External model uploads are not supported
-in v1 (OQ-14). *Rejected:* local-disk storage (not multi-instance safe); loading user-supplied pickles (RCE).
+**ADR-014 File Manager storage and artifact trust** *(amended 2026-09-30)*. Uploads are stored as immutable,
+SHA-256-addressed versions, converted to canonical Parquet, on a **local Docker volume** (`dq-storage`) mounted by the DQ
+service and DQ workers on the same host. Layout: `files/<file_id>/v<n>.parquet` (plus the original upload) and
+`artifacts/<kind>/<id>`. Metadata (files, versions, lineage, presets, model registry) is in schema `dq_service`.
+All access goes through a `FileStorage` protocol (`LocalVolumeStorage` now), so a later move to S3 is a config change
+plus an implementation, not a redesign. Model artifacts are produced only by the service, HMAC-signed and verified
+before load. External model uploads are not supported in v1 (OQ-14).
+*Context:* the deployment is Docker Compose on a single VM (OQ-07), so an object store is extra infrastructure without
+a benefit yet. *Consequences:* the DQ service and workers must run on the same host (or share the volume). Backups
+must include the volume alongside Postgres (S25). Horizontal scaling across hosts requires switching to S3 first.
+*Rejected:* MinIO/S3 now (extra service to operate at v1 scale); file bytes in Postgres (DB bloat, slow backups);
+loading uploads into Postgres tables (slow for 20M-row files); loading user-supplied pickles (RCE).
 
 **ADR-015 DQ compute strategy: SQL-first via sqlglot + DuckDB, numeric/ML on bounded samples.** Deterministic
 tabular work (rules, profiling aggregates, preprocessing steps) is a validated AST compiled per dialect. It is pushed
