@@ -40,7 +40,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         logger.info("service stopped")
 
-    app = FastAPI(title=settings.service_name, version=settings.version, lifespan=lifespan)
+    if settings.env == "prod" and len(token_registry) == 0:
+        logger.warning("no API tokens configured: every authenticated route will return 401")
+
+    # Interactive docs and the OpenAPI schema are unauthenticated, so they are off in prod.
+    docs_enabled = settings.env != "prod"
+    app = FastAPI(
+        title=settings.service_name,
+        version=settings.version,
+        lifespan=lifespan,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+    )
     app.state.settings = settings
     app.state.token_registry = token_registry
     app.state.readiness = ReadinessRegistry()

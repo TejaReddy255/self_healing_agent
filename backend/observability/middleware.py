@@ -36,7 +36,8 @@ class RequestContextMiddleware:
         token = request_id_var.set(request_id)
         scope.setdefault("state", {})["request_id"] = request_id
         started = time.perf_counter()
-        status_code = 500
+        # None until a response starts; stays None when the client disconnects/cancels first.
+        status_code: int | None = None
         response_started = False
 
         async def send_with_request_id(message: Message) -> None:
@@ -63,7 +64,7 @@ class RequestContextMiddleware:
                 extra={
                     "method": scope["method"],
                     "path": scope["path"],
-                    "status_code": status_code,
+                    "status_code": status_code if status_code is not None else "no_response",
                     "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                 },
             )

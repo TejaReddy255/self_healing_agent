@@ -152,6 +152,20 @@ def test_http_errors_use_envelope(client: TestClient) -> None:
     }
 
 
+# --- API docs exposure (security review F4) --------------------------------------------------
+
+
+@pytest.mark.spec("S01-AC2")
+@pytest.mark.parametrize(("env", "expected"), [("test", 200), ("prod", 404)])
+def test_api_docs_disabled_in_prod(
+    make_settings: Callable[..., Settings], env: str, expected: int
+) -> None:
+    app = create_app(make_settings(env=env, cors_allow_origins=["https://ops.example.com"]))
+    with TestClient(app) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == expected, path
+
+
 # --- Readiness registry (contract used by later slices) --------------------------------------
 
 

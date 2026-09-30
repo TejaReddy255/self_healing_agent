@@ -11,7 +11,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class FrontendSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
+    )
 
     agent_base_url: str = "http://127.0.0.1:8000"
     agent_api_token: SecretStr | None = None
@@ -78,8 +80,11 @@ class AgentApiClient:
             return ReadinessView(
                 error=f"Unexpected response from the backend (HTTP {response.status_code})."
             )
+        unreadable = ReadinessView(error="The backend returned an unreadable response.")
         try:
             body = response.json()
         except ValueError:
-            return ReadinessView(error="The backend returned an unreadable response.")
+            return unreadable
+        if not isinstance(body, dict) or not isinstance(body.get("components", {}), dict):
+            return unreadable
         return ReadinessView(status=body.get("status"), components=body.get("components", {}))

@@ -28,10 +28,20 @@ _UVICORN_LOGGERS: Final = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
 class RedactionFilter(logging.Filter):
-    """Redacts the rendered message and every ``extra`` field on the record."""
+    """Redacts the rendered message and every ``extra`` field on the record.
+
+    Every handler must be created with :func:`build_handler` so it carries this filter; handlers
+    added any other way (e.g. OTel/Sentry in S23) would receive unredacted records.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_text(record.getMessage())
+        try:
+            message = record.getMessage()
+        except Exception:
+            # Filters run outside logging's own error handling: a malformed call such as
+            # logger.warning("%s %s", 1) must not raise into application code.
+            message = f"{record.msg} (log formatting failed; args dropped)"
+        record.msg = redact_text(message)
         record.args = None
         for attr in list(vars(record)):
             if attr not in _STANDARD_ATTRS:

@@ -31,6 +31,9 @@ import pytest
 @pytest.mark.spec("S98-AC1", "S98-AC2")
 def test_something():
     pass
+
+# @pytest.mark.spec("S98-AC3")  <- commented out: must not count as coverage
+NOTE = 'pytest.mark.spec("S98-AC3") inside a string must not count either'
 """
 
 

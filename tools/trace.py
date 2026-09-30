@@ -12,6 +12,7 @@ exit code is 1 if any spec whose status is DONE has an uncovered AC.
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from collections import defaultdict
@@ -21,7 +22,6 @@ from pathlib import Path
 AC_ID = re.compile(r"\bS\d{2}-AC\d+\b")
 AC_DEFINITION = re.compile(r"\*\*(S\d{2}-AC\d+)\*\*")
 STATUS_LINE = re.compile(r"^status:\s*([A-Z_]+)", re.MULTILINE)
-SPEC_MARKER = re.compile(r"mark\.spec\(([^)]*)\)")
 RUNTIME_VERIFIED = re.compile(r"runtime-verified:\s*((?:S\d{2}-AC\d+[\s,]*)+)")
 EVIDENCE_HEADING = "## Verification evidence"
 
@@ -63,15 +63,32 @@ def load_specs(specs_dir: Path) -> list[Spec]:
     return [parse_spec(p) for p in sorted(specs_dir.glob("S[0-9][0-9]-*.md"))]
 
 
+def _is_spec_marker(call: ast.Call) -> bool:
+    """True for ``pytest.mark.spec(...)`` / ``mark.spec(...)`` calls."""
+    func = call.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "spec"
+        and isinstance(func.value, ast.Attribute)
+        and func.value.attr == "mark"
+    )
+
+
 def scan_tests(tests_dir: Path) -> dict[str, list[str]]:
-    """Map AC id → ["path:line", ...] for every ``mark.spec(...)`` usage under ``tests_dir``."""
+    """Map AC id → ["path:line", ...] for every real ``mark.spec(...)`` call under ``tests_dir``.
+
+    Files are parsed with ``ast`` so markers inside comments or string literals do not count.
+    """
     coverage: dict[str, list[str]] = defaultdict(list)
     for path in sorted(tests_dir.rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        for match in SPEC_MARKER.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
-            for ac in AC_ID.findall(match.group(1)):
-                coverage[ac].append(f"{path.as_posix()}:{line}")
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and _is_spec_marker(node)):
+                continue
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    for ac in AC_ID.findall(arg.value):
+                        coverage[ac].append(f"{path.as_posix()}:{node.lineno}")
     return coverage
 
 

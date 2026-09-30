@@ -15,8 +15,11 @@ dist/
 .env
 .env.*
 !.env.example
+.envrc
 *.pem
 *.key
+*.p12
+*.pfx
 secrets/
 config/api_tokens*.json
 !config/api_tokens.example.json

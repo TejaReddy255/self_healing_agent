@@ -27,6 +27,20 @@ pytestmark = pytest.mark.spec("S01-AC5")
         ("client_secret: xyz789 rotated", "xyz789"),
         ("API-KEY=k-123-456", "k-123-456"),
         ("secret = topsecretvalue", "topsecretvalue"),
+        # Review findings (S01 code + security review): prefixed keys, quoted keys, URL passwords
+        # containing '@' or '/', and the remaining spec keys.
+        ("PG_PASSWORD=pgpass1", "pgpass1"),
+        ("access_token=at-999", "at-999"),
+        ("refresh_token: rt-888", "rt-888"),
+        ("db_password=dbp777", "dbp777"),
+        ("{'password': 'dictpw'}", "dictpw"),
+        ('{"token": "jsontok"}', "jsontok"),
+        ("postgres://u:p@ss@host:5432/db", "ss@host"),
+        ("postgres://u:ab/cd@host/db", "ab/cd"),
+        ("authorization=raw-auth-value", "raw-auth-value"),
+        ("credential=cred-1", "cred-1"),
+        ("dsn: host=db user=x", "host=db"),
+        ("Cookie: sessionid=abc123", "abc123"),
     ],
 )
 def test_inline_patterns_are_masked(raw: str, must_not_contain: str) -> None:
@@ -73,3 +87,30 @@ def test_handler_redacts_message_args_and_extras() -> None:
     assert "t-1" not in stream.getvalue()
     assert line["authorization"] == REDACTED
     assert line["details"] == {"token": REDACTED, "rows": 5}
+
+
+def _capture(logger_name: str) -> tuple[logging.Logger, io.StringIO]:
+    stream = io.StringIO()
+    logger = logging.getLogger(logger_name)
+    logger.propagate = False
+    logger.handlers = [build_handler(stream)]
+    logger.setLevel(logging.INFO)
+    return logger, stream
+
+
+def test_non_primitive_extras_are_rendered_then_redacted() -> None:
+    class Endpoint:
+        def __str__(self) -> str:
+            return "mysql://root:objpw@db/sales"
+
+    logger, stream = _capture("tests.redaction.objects")
+    logger.info("connecting", extra={"endpoint": Endpoint(), "error": ValueError("token=exc-tok")})
+    assert "objpw" not in stream.getvalue()
+    assert "exc-tok" not in stream.getvalue()
+
+
+def test_malformed_log_call_does_not_raise() -> None:
+    logger, stream = _capture("tests.redaction.malformed")
+    logger.warning("two %s %s", 1)  # one argument missing: must not raise into the caller
+    line = json.loads(stream.getvalue())
+    assert "log formatting failed" in line["message"]

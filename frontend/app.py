@@ -6,6 +6,7 @@ Run: ``streamlit run frontend/app.py``
 from __future__ import annotations
 
 import streamlit as st
+from pydantic import ValidationError
 
 from frontend.api_client import AgentApiClient, FrontendSettings
 
@@ -16,7 +17,14 @@ def main() -> None:
     st.set_page_config(page_title="Self-Healing Pipeline Monitor", layout="wide")
     st.title("Self-Healing Pipeline Monitor")
 
-    client = AgentApiClient.from_settings(FrontendSettings())
+    try:
+        settings = FrontendSettings()
+    except ValidationError as exc:
+        fields = sorted({str(err["loc"][0]).upper() for err in exc.errors() if err["loc"]})
+        st.error(f"Invalid frontend configuration: check {', '.join(fields)} in your environment.")
+        return
+
+    client = AgentApiClient.from_settings(settings)
     try:
         readiness = client.get_readiness()
     finally:

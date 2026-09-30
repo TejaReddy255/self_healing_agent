@@ -78,6 +78,18 @@ def test_backend_timeout_is_actionable(backend: respx.MockRouter) -> None:
     assert "did not respond within 2 s" in texts(run_app())
 
 
+def test_non_object_payload_is_actionable(backend: respx.MockRouter) -> None:
+    backend.get("/health/ready").respond(200, json=["not", "an", "object"])
+    assert "unreadable response" in texts(run_app())
+
+
+def test_invalid_frontend_settings_are_actionable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_HEALTH_TIMEOUT_SECONDS", "not-a-number")
+    message = texts(run_app())
+    assert "Invalid frontend configuration" in message
+    assert "AGENT_HEALTH_TIMEOUT_SECONDS" in message
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [(401, "AGENT_API_TOKEN"), (403, "Viewer role"), (500, "HTTP 500")],
