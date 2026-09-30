@@ -28,6 +28,12 @@ coverage, rate limits, admin log access, metrics and tracing, dependency audit, 
 - `/metrics` (Prometheus) with the metrics in architecture §14. Optional OpenTelemetry traces with the log correlation attributes.
 - Cross-process activity fan-out (PG `LISTEN/NOTIFY`) so WebSocket clients work with more than one API instance.
 - `pip-audit` (or equivalent) in CI. Licence check of the dependency list.
+- *(Deferred from the S01 security review, F7)* Pin GitHub Actions to commit SHAs; add a gitleaks (or equivalent)
+  secret scan to CI.
+- *(Deferred from the S01 security review, F6)* The frontend refuses a plain `http://` `AGENT_BASE_URL` for a
+  non-loopback host unless `AGENT_ALLOW_INSECURE_HTTP=true` is set explicitly (for Compose-internal traffic such as
+  `http://api:8000`).
+- Any new log handler (OTel/Sentry) must be created through `build_handler` so it carries the redaction filter (S01 rule).
 - `security-review` skill → `docs/security-review.md` (threat model plus findings table). All High/Critical findings fixed or formally accepted.
 
 ## Acceptance criteria

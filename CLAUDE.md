@@ -66,15 +66,19 @@ service only through adapters. No imports cross in either direction. The DQ serv
 
 ## Commands
 
-_To be filled in by S01._ Expected shape:
+Available now (S01):
 
 ```text
-uv sync
-uv run ruff check . ; uv run ruff format --check . ; uv run mypy backend frontend tools
-uv run pytest -m "not integration and not e2e and not live"
-uv run python tools/trace.py --strict
-docker compose -f deploy/docker-compose.dev.yml up -d
-uv run python -m backend.db.migrate up
-uv run uvicorn backend.main:app --reload
-uv run streamlit run frontend/app.py
+uv sync                                                    # install (uv.lock is committed)
+uv run ruff check .                                        # lint
+uv run ruff format --check .                               # format check (Markdown excluded)
+uv run mypy backend frontend tools                         # strict type check
+uv run pytest -m "not integration and not e2e and not live"   # unit + contract tests
+uv run python tools/trace.py --strict                      # spec AC ↔ test traceability
+uv run python tools/new_token.py <subject> <role>          # create an API token entry
+uv run uvicorn backend.main:app --reload                   # API on :8000
+uv run streamlit run frontend/app.py                       # operator console on :8501
 ```
+
+Added by later slices: `docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d` (S02),
+`uv run python -m backend.db.migrate up` (S02).
