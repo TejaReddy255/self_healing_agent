@@ -1,7 +1,7 @@
 ---
 id: S01
 title: Project skeleton, config, logging, auth scaffold, health, CI
-status: APPROVED
+status: IN_PROGRESS
 phase: 0
 owner_agent: devops-sre
 reviewers: [code-reviewer, security-reviewer]

@@ -1,0 +1,24 @@
+# Local development services. Used from S02 onward.
+#   docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d
+# The password must come from .env; there is deliberately no default.
+name: self-healing-dev
+
+services:
+  operational-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: ${PG_USER:-selfhealing}
+      POSTGRES_DB: ${PG_DATABASE:-selfhealing}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?set PG_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - operational-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  operational-db-data:
