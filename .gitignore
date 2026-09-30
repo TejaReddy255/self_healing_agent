@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Secrets and local environment (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+config/api_tokens*.json
+!config/api_tokens.example.json
+
+# Local tooling state
+.claude/audit/
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# Generated reports
+reports/
