@@ -33,7 +33,7 @@ riskiest safety boundary (execution, S11) lands in Phase 2 so it gets the longes
 
 | ID | Slice | Phase | Owner agent | Depends on | Tags | Status |
 |---|---|---|---|---|---|---|
-| [S01](specs/S01-project-skeleton.md) | Project skeleton, config, logging, auth scaffold, health, CI | 0 | devops-sre | — | runtime, security-sensitive | IN_REVIEW |
+| [S01](specs/S01-project-skeleton.md) | Project skeleton, config, logging, auth scaffold, health, CI | 0 | devops-sre | — | runtime, security-sensitive | DONE |
 | [S02](specs/S02-persistence-foundation.md) | Persistence foundation, migrations, audit and activity | 0 | data-engineer | S01 | schema | DRAFT |
 | [S03](specs/S03-domain-contracts.md) | Shared domain contracts and canonical hashing | 0 | backend-engineer | S01 | contract, security-sensitive | DRAFT |
 | [S04](specs/S04-static-metadata-layer.md) | Static Metadata Layer (META-01..04) | 1 | backend-engineer | S03 | contract | DRAFT |

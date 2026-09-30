@@ -1,7 +1,7 @@
 ---
 id: S01
 title: Project skeleton, config, logging, auth scaffold, health, CI
-status: IN_REVIEW
+status: DONE
 phase: 0
 owner_agent: devops-sre
 reviewers: [code-reviewer, security-reviewer]
@@ -150,3 +150,5 @@ Run on 2026-09-30, Windows 11, Python 3.12.10, uv 0.12.21, branch `slice/S01-pro
   Ruff configured to skip `.claude/` and Markdown. IN_REVIEW.
 - 2026-09-30 — code and security review findings fixed (see evidence). `ENV` made required (strengthens AC3). AC4
   wording clarified for CORS preflights. F6 and the F7 remainder moved to S23. Awaiting human acceptance for DONE.
+- 2026-09-30 — accepted by product owner: `ENV` required kept; AC4 preflight clarification accepted; F6 and the F7
+  remainder deferred to S23. Status DONE; merged to `main`.
