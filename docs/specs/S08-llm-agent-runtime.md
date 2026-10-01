@@ -74,6 +74,9 @@ A single live smoke call with the real Gemini config (`-m live`) that returns a 
 ## Rollback
 Revert code.
 
+## Open issues
+- From S05: wrap `backend.airflow.tools.AirflowReadTools`, which holds only the read-only `AirflowReader` Protocol. `get_task_logs` already redacts off the event loop and returns untrusted text, so wrap `TaskLog.content` in `untrusted()`. The tools reject DAGs outside their allowlist with `AirflowToolDenied`, which should be returned to the model as a tool error.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

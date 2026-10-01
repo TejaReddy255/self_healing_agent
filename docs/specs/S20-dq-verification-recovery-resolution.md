@@ -63,6 +63,7 @@ Revert code. If rolled back, S11's in-worker RECOVERY_VERIFY remains the fallbac
 ## Open issues
 - From S03 (decision 2026-09-30, architecture §7.5): with `retry_airflow_after_success=false`, a COMPLETED job leaves the incident in RECOVERY_RUNNING. Only a recorded operator recovery confirmation moves it to RESOLVED. Build that confirmation (API + audit) here.
 - From S05 refinement: `wait_for_terminal` is stateless by `dag_run_id`, so resume after a restart by calling it again. `trigger_recovery_run` raising `AirflowConflict` (a logical-date collision or a foreign run with the same ID) needs an operator decision; never auto-retry the trigger.
+- From S05 security review: before triggering, persist the recovery intent (review, revision, `dag_run_id`, `requested_at`). When adopting an existing run after a 409, reject runs whose `start_date` precedes the intent, as a pre-created run could otherwise be adopted as verified recovery (invariant 7). Check `AirflowDag.is_paused` before triggering. Bound each `wait_for_terminal` poll with its own deadline; a single GET with retries can overshoot `timeout_s`.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

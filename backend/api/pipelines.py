@@ -10,8 +10,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
+from backend.airflow.client import checked_identifier
 from backend.airflow.context_provider import AirflowContextProvider
 from backend.airflow.models import AirflowRuntimeContext
 from backend.api.errors import ApiError
@@ -34,7 +35,11 @@ async def pipeline_context(
     pipeline_id: str,
     request: Request,
     _: Annotated[Actor, Depends(require_role(Role.VIEWER))],
-    run_id: Annotated[str | None, Query(min_length=1, max_length=250)] = None,
+    run_id: Annotated[
+        str | None,
+        Query(pattern=r"^[A-Za-z0-9_.~:+-]{1,250}$"),
+        AfterValidator(lambda v: None if v is None else checked_identifier(v)),
+    ] = None,
 ) -> PipelineContext:
     metadata: MetadataReader = request.app.state.metadata_service
     provider: AirflowContextProvider = request.app.state.airflow_context

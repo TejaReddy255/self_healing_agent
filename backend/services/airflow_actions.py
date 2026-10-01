@@ -60,32 +60,45 @@ class AirflowActionService:
             raise AirflowUnavailable("Airflow is not configured", category="not configured")
         return self._client
 
+    async def _require_registered_audited(
+        self, event_type: str, dag_id: str, actor: ActorRef
+    ) -> None:
+        try:
+            self.require_registered(dag_id)
+        except DagNotRegistered:
+            await self._audit(event_type, "DENIED", actor, dag_id, None, time.monotonic())
+            raise
+
     async def trigger(self, dag_id: str, actor: ActorRef) -> AirflowDagRun:
         """Start a manual run with no conf (decision 2026-10-01). Never retried."""
-        self.require_registered(dag_id)
+        await self._require_registered_audited("AIRFLOW_TRIGGER", dag_id, actor)
         dag_run_id = f"manual__console__{uuid.uuid4()}"
         started = time.monotonic()
+        status = "OUTCOME_UNKNOWN"  # if anything unexpected escapes, the attempt is still recorded
         try:
             run = await self.client().trigger_dag_run(dag_id, dag_run_id, conf=None)
+            status = "OK"
+            return run
         except AirflowError as exc:
-            await self._audit(
-                "AIRFLOW_TRIGGER", exc.category.upper(), actor, dag_id, dag_run_id, started
-            )
+            status = exc.category.upper()
             raise
-        await self._audit("AIRFLOW_TRIGGER", "OK", actor, dag_id, run.dag_run_id, started)
-        return run
+        finally:
+            await self._audit("AIRFLOW_TRIGGER", status, actor, dag_id, dag_run_id, started)
 
     async def set_paused(self, dag_id: str, is_paused: bool, actor: ActorRef) -> AirflowDag:
-        self.require_registered(dag_id)
         event_type = "AIRFLOW_PAUSE" if is_paused else "AIRFLOW_RESUME"
+        await self._require_registered_audited(event_type, dag_id, actor)
         started = time.monotonic()
+        status = "OUTCOME_UNKNOWN"
         try:
             dag = await self.client().patch_dag(dag_id, is_paused=is_paused)
+            status = "OK"
+            return dag
         except AirflowError as exc:
-            await self._audit(event_type, exc.category.upper(), actor, dag_id, None, started)
+            status = exc.category.upper()
             raise
-        await self._audit(event_type, "OK", actor, dag_id, None, started)
-        return dag
+        finally:
+            await self._audit(event_type, status, actor, dag_id, None, started)
 
     async def _audit(
         self,
@@ -102,17 +115,24 @@ class AirflowActionService:
                 extra={"event_type": event_type, "dag_id": dag_id, "actor": actor.subject},
             )
             return
-        await self._audit_service.record(
-            AuditEvent(
-                phase="airflow",
-                event_type=event_type,
-                status=status.replace(" ", "_"),
-                operation=event_type.lower(),
-                server="airflow",
-                actor_subject=actor.subject,
-                actor_role=actor.role,
-                dag_id=dag_id,
-                run_id=run_id,
-                duration_ms=int((time.monotonic() - started) * 1000),
-            )
+        event = AuditEvent(
+            phase="airflow",
+            event_type=event_type,
+            status=status.replace(" ", "_"),
+            operation=event_type.lower(),
+            server="airflow",
+            actor_subject=actor.subject,
+            actor_role=actor.role,
+            dag_id=dag_id,
+            run_id=run_id,
+            duration_ms=int((time.monotonic() - started) * 1000),
         )
+        try:
+            await self._audit_service.record(event)
+        except Exception:
+            # The Airflow action already happened. Failing the request now would make the operator
+            # click again and start a second run, so surface the missing audit row loudly instead.
+            logger.exception(
+                "airflow action audit failed",
+                extra={"event_type": event_type, "status": status, "dag_id": dag_id},
+            )

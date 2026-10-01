@@ -21,6 +21,12 @@ class AirflowUnavailable(AirflowError):
 
     category = "unreachable"
 
+    def __init__(
+        self, message: str, *, category: str | None = None, retry_after: float | None = None
+    ) -> None:
+        super().__init__(message, category=category)
+        self.retry_after = retry_after
+
 
 class AirflowNotFound(AirflowError):
     category = "not_found"

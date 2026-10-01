@@ -7,6 +7,7 @@ from backend.airflow.errors import (
     AirflowAuthError,
     AirflowConflict,
     AirflowNotFound,
+    AirflowProtocolError,
     AirflowRequestError,
     AirflowUnavailable,
 )
@@ -111,26 +112,49 @@ async def test_wrong_credentials_are_an_auth_error() -> None:
 
 
 @pytest.mark.spec("S05-AC10")
-@pytest.mark.parametrize(
-    ("run_id", "encoded"),
-    [
-        (RUN, "scheduled__2026-10-01T02%3A00%3A00%2B00%3A00"),
-        ("../../dags/other", "..%2F..%2Fdags%2Fother"),
-        ("a?b#c", "a%3Fb%23c"),
-    ],
-)
-async def test_run_ids_reach_airflow_as_one_encoded_segment(run_id: str, encoded: str) -> None:
+async def test_run_ids_reach_airflow_as_one_encoded_segment() -> None:
     with fake_airflow(canonical_scenario()) as fake:
         client, _ = make_client()
-        with pytest.raises(AirflowNotFound):
-            await client.get_dag_run(DAG, run_id + "-missing")
+        run = await client.get_dag_run(DAG, RUN)
+        assert run.dag_run_id == RUN
         (call,) = fake.calls_to("GET", "/dagRuns/")
-        assert call.raw_path == f"/api/v1/dags/{DAG}/dagRuns/{encoded}-missing"
+        assert call.raw_path == (
+            f"/api/v1/dags/{DAG}/dagRuns/scheduled__2026-10-01T02%3A00%3A00%2B00%3A00"
+        )
         await client.aclose()
 
 
-def test_encode_path_escapes_slashes() -> None:
-    assert encode_path("dags", "a/b", 3) == "dags/a%2Fb/3"
+@pytest.mark.spec("S05-AC10")
+@pytest.mark.parametrize(
+    "hostile",
+    ["../../dags/other", "..", ".", "~", "a/b", "a%2Fb", "a?b#c", "x y", "", "a" * 251],
+)
+async def test_hostile_identifiers_are_rejected_before_any_request(hostile: str) -> None:
+    # Encoding alone is not enough: proxies in front of Airflow often decode %2F.
+    with fake_airflow(canonical_scenario()) as fake:
+        client, _ = make_client()
+        with pytest.raises(AirflowRequestError, match="invalid Airflow identifier"):
+            await client.get_dag_run(DAG, hostile)
+        with pytest.raises(AirflowRequestError):
+            await client.get_task_log(DAG, RUN, hostile, 1)
+        assert fake.calls == []
+        await client.aclose()
+
+
+def test_encode_path_keeps_numbers_and_safe_ids() -> None:
+    assert encode_path("dags", "a.b-c_d", 3) == "dags/a.b-c_d/3"
+    assert encode_path("x", "manual__2026:01+00") == "x/manual__2026%3A01%2B00"
+
+
+@pytest.mark.spec("S05-AC10")
+async def test_answers_for_a_different_resource_are_rejected() -> None:
+    fake = canonical_scenario()
+    fake.dags["customer_daily_load"]["dag_id"] = "some_other_dag"
+    with fake_airflow(fake):
+        client, _ = make_client()
+        with pytest.raises(AirflowProtocolError, match="different resource"):
+            await client.get_dag(DAG)
+        await client.aclose()
 
 
 @pytest.mark.spec("S05-AC10")
@@ -178,4 +202,66 @@ async def test_task_instances_are_paginated() -> None:
         tasks = await client.list_task_instances(DAG, RUN)
         assert len(tasks) == 250
         assert len(fake.calls_to("GET", "/taskInstances")) == 3
+        await client.aclose()
+
+
+async def test_runs_are_requested_newest_first() -> None:
+    with fake_airflow(canonical_scenario()) as fake:
+        client, _ = make_client()
+        await client.list_dag_runs(DAG, 5)
+        (call,) = fake.calls_to("GET", "/dagRuns")
+        assert call.params == {"limit": "5", "order_by": "-execution_date"}
+        await client.aclose()
+
+
+async def test_pagination_survives_a_small_server_page_limit() -> None:
+    fake = FakeAirflow(max_page_limit=50).add_dag(DAG).add_run(DAG, RUN)
+    for i in range(120):
+        fake.add_task(DAG, RUN, f"task_{i:03d}", state="failed" if i == 119 else "success")
+    with fake_airflow(fake):
+        client, _ = make_client()
+        tasks = await client.list_task_instances(DAG, RUN)
+        assert len(tasks) == 120
+        assert [t.task_id for t in tasks if t.failed] == ["task_119"]
+        await client.aclose()
+
+
+async def test_health_tolerates_unknown_or_missing_statuses() -> None:
+    fake = canonical_scenario()
+    fake.health = {"metadatabase": {"status": None}, "scheduler": {"status": "starting"}}
+    with fake_airflow(fake):
+        client, _ = make_client()
+        health = await client.health()
+        assert (health.metadatabase, health.scheduler, health.healthy) == (
+            "unknown",
+            "unknown",
+            False,
+        )
+        await client.aclose()
+
+
+@pytest.mark.spec("S05-AC2")
+async def test_non_json_write_response_is_a_protocol_error() -> None:
+    import httpx
+    import respx
+
+    from backend.airflow.client import HttpAirflowClient
+    from tests.fakes.airflow import fake_settings
+
+    with respx.mock() as router:
+        router.post(url__regex=r".*/dagRuns$").mock(return_value=httpx.Response(200, text="ok"))
+        client = HttpAirflowClient(fake_settings())
+        with pytest.raises(AirflowProtocolError):
+            await client.trigger_dag_run(DAG, "manual__x", None)
+        await client.aclose()
+
+
+@pytest.mark.spec("S05-AC2")
+async def test_log_retries_honour_retry_after() -> None:
+    with fake_airflow(canonical_scenario()) as fake:
+        fake.fail_next("GET", "/logs/", 429, retry_after="4")
+        client, sleeps = make_client()
+        log = await client.get_task_log(DAG, RUN, "load_customers", 2)
+        assert "duplicate key" in log.text
+        assert sleeps == [4.0]
         await client.aclose()

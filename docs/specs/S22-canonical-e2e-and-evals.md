@@ -55,6 +55,7 @@ Not applicable (test assets).
 
 ## Open issues
 - From S05 (decision 2026-10-01): S05 was verified only against the respx fake. Run the S05 client and context endpoint against the Airflow standalone container here and record the evidence in S05 too.
+- From S05 code review: confirm against real Airflow the `try_number` semantics of finished task instances on the deployed 2.x version (versions before 2.10 may report one higher), the log endpoint `Accept` and `continuation_token` behaviour, and the 200 "Log file does not exist" response for missing logs.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.domain.common import JsonObject, UtcDatetime
+from backend.observability.redaction import redact_value
 
 # Known states (Airflow 2.x). Anything else is passed through as-is.
 DAG_RUN_TERMINAL = frozenset({"success", "failed"})
@@ -58,8 +59,12 @@ class AirflowDagRun(AirflowModel):
 
     @field_validator("conf", mode="before")
     @classmethod
-    def _null_conf(cls, value: Any) -> Any:
-        return {} if value is None else value
+    def _redacted_conf(cls, value: Any) -> Any:
+        # Runs triggered by other systems often carry credentials in conf; viewers and agents
+        # only ever see a redacted copy.
+        if value is None:
+            return {}
+        return redact_value(value) if isinstance(value, dict) else value
 
     @property
     def terminal(self) -> bool:
@@ -81,9 +86,21 @@ class AirflowTaskInstance(AirflowModel):
         return self.state in FAILED_TASK_STATES
 
 
+HealthState = Literal["healthy", "unhealthy", "unknown"]
+
+
+def health_state(value: object) -> HealthState:
+    """Airflow may add statuses or send null: anything unexpected is "unknown"."""
+    if value == "healthy":
+        return "healthy"
+    if value == "unhealthy":
+        return "unhealthy"
+    return "unknown"
+
+
 class AirflowHealth(AirflowModel):
-    metadatabase: Literal["healthy", "unhealthy", "unknown"] = "unknown"
-    scheduler: Literal["healthy", "unhealthy", "unknown"] = "unknown"
+    metadatabase: HealthState = "unknown"
+    scheduler: HealthState = "unknown"
     latest_scheduler_heartbeat: UtcDatetime | None = None
 
     @property
@@ -98,6 +115,8 @@ class RawLog(AirflowModel):
     text: str
     downloaded_bytes: int
     download_capped: bool
+    # The log was longer than the memory window, so ``text`` starts mid-line.
+    tail_trimmed: bool = False
 
 
 class TaskLog(AirflowModel):

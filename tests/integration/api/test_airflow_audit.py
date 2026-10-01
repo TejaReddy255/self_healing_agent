@@ -63,7 +63,7 @@ def test_every_operator_action_attempt_is_audited(
             scenario.fail_next("POST", "/dagRuns", 503)
             failed = client.post(f"/airflow/dags/{DAG}/runs", json={}, headers=auth("operator"))
             assert failed.status_code == 503
-            # Rejected before any attempt: no audit row.
+            # A role denial (403) happens before the service: no audit row (S23 adds a log).
             assert (
                 client.post(
                     f"/airflow/dags/{DAG}/runs", json={}, headers=auth("viewer")
@@ -83,8 +83,11 @@ def test_every_operator_action_attempt_is_audited(
         ("AIRFLOW_PAUSE", "OK", "operator@test", "operator"),
         ("AIRFLOW_RESUME", "OK", "admin@test", "admin"),
         ("AIRFLOW_TRIGGER", "HTTP_503", "operator@test", "operator"),
+        # Unregistered DAG: refused before any Airflow call, but the attempt is recorded.
+        ("AIRFLOW_TRIGGER", "DENIED", "operator@test", "operator"),
     ]
-    assert all(r["dag_id"] == DAG and r["duration_ms"] is not None for r in rows)
+    assert [r["dag_id"] for r in rows] == [DAG, DAG, DAG, DAG, "unregistered"]
+    assert all(r["duration_ms"] is not None for r in rows)
     assert rows[0]["run_id"] == created.json()["dag_run_id"]
     assert rows[3]["run_id"].startswith("manual__console__")
     assert all(PASSWORD not in str(r) for r in rows)

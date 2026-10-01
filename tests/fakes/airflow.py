@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -65,7 +65,7 @@ class FakeAirflow:
     dags: dict[str, dict[str, Any]] = field(default_factory=dict)
     runs: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
     tasks: dict[tuple[str, str], list[dict[str, Any]]] = field(default_factory=dict)
-    logs: dict[tuple[str, str, str, int], str] = field(default_factory=dict)
+    logs: dict[tuple[str, str, str, int, int], str] = field(default_factory=dict)
     health: dict[str, Any] = field(
         default_factory=lambda: {
             "metadatabase": {"status": "healthy"},
@@ -74,6 +74,10 @@ class FakeAirflow:
     )
     calls: list[Call] = field(default_factory=list)
     failures: list[_Failure] = field(default_factory=list)
+    # Airflow's [api] maximum_page_limit: pages are never larger than this.
+    max_page_limit: int = 100
+    # Serve logs in chunks of this many bytes (exercises streaming); None = one chunk.
+    log_chunk_size: int | None = None
 
     # --- scenario builders ------------------------------------------------------------------
 
@@ -148,9 +152,16 @@ class FakeAirflow:
         return self
 
     def set_log(
-        self, dag_id: str, run_id: str, task_id: str, try_number: int, text: str
+        self,
+        dag_id: str,
+        run_id: str,
+        task_id: str,
+        try_number: int,
+        text: str,
+        *,
+        map_index: int = -1,
     ) -> FakeAirflow:
-        self.logs[(dag_id, run_id, task_id, try_number)] = text
+        self.logs[(dag_id, run_id, task_id, try_number, map_index)] = text
         return self
 
     def fail_next(
@@ -207,10 +218,15 @@ class FakeAirflow:
 
         assert raw_path.startswith(API_PREFIX), raw_path
         segments = [unquote(s) for s in raw_path[len(API_PREFIX) :].split("/")]
-        return self._route(request.method, segments, params, body)
+        return self._route(request.method, segments, params, body, request.headers)
 
     def _route(
-        self, method: str, s: list[str], params: dict[str, str], body: Any
+        self,
+        method: str,
+        s: list[str],
+        params: dict[str, str],
+        body: Any,
+        headers: httpx.Headers,
     ) -> httpx.Response:
         not_found = httpx.Response(404, json={"title": "Not Found", "status": 404})
         if s == ["health"] and method == "GET":
@@ -228,8 +244,12 @@ class FakeAirflow:
         if len(s) == 3 and s[2] == "dagRuns":
             runs = self.runs[dag_id]
             if method == "GET":
-                ordered = sorted(runs.values(), key=lambda r: r["logical_date"], reverse=True)
-                limit = int(params.get("limit", 25))
+                # Real Airflow orders by id (insertion) unless order_by is given.
+                if params.get("order_by") == "-execution_date":
+                    ordered = sorted(runs.values(), key=lambda r: r["logical_date"], reverse=True)
+                else:
+                    ordered = list(runs.values())
+                limit = min(int(params.get("limit", 25)), self.max_page_limit)
                 return httpx.Response(
                     200, json={"dag_runs": ordered[:limit], "total_entries": len(ordered)}
                 )
@@ -255,7 +275,8 @@ class FakeAirflow:
                 return httpx.Response(200, json=run)
             if len(s) == 5 and s[4] == "taskInstances" and method == "GET":
                 tasks = self.tasks.get((dag_id, s[3]), [])
-                offset, limit = int(params.get("offset", 0)), int(params.get("limit", 100))
+                offset = int(params.get("offset", 0))
+                limit = min(int(params.get("limit", 100)), self.max_page_limit)
                 return httpx.Response(
                     200,
                     json={
@@ -264,11 +285,31 @@ class FakeAirflow:
                     },
                 )
             if len(s) == 8 and s[4] == "taskInstances" and s[6] == "logs" and method == "GET":
-                text = self.logs.get((dag_id, s[3], s[5], int(s[7])))
+                map_index = int(params.get("map_index", -1))
+                text = self.logs.get((dag_id, s[3], s[5], int(s[7]), map_index))
                 if text is None:
                     return not_found
-                return httpx.Response(200, text=text, headers={"Content-Type": "text/plain"})
+                if headers.get("accept") != "text/plain":
+                    # Airflow answers JSON unless plain text is asked for.
+                    return httpx.Response(200, json={"content": text, "continuation_token": None})
+                data = text.encode()
+                size = self.log_chunk_size or max(len(data), 1)
+                chunks = [data[i : i + size] for i in range(0, len(data), size)]
+                return httpx.Response(
+                    200, stream=_ChunkStream(chunks), headers={"Content-Type": "text/plain"}
+                )
         return not_found
+
+
+class _ChunkStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.served = 0
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            self.served += len(chunk)
+            yield chunk
 
 
 @contextmanager

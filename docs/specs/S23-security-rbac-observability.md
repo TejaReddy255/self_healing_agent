@@ -49,6 +49,9 @@ coverage, rate limits, admin log access, metrics and tracing, dependency audit, 
 ## Rollback
 Feature flags for the OIDC and rate-limit middleware. Revert code.
 
+## Open issues
+- From S05 security review: audit or security-log role denials (403) on operator routes. Add a per-request time budget and a circuit breaker for Airflow calls, and consider requiring https for Airflow in every non-dev environment.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

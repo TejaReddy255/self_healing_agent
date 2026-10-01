@@ -8,7 +8,9 @@ S04) and refreshed in the background while the app runs.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -41,6 +43,9 @@ from backend.services.audit_service import AuditService
 from backend.services.metadata_audit import make_reload_auditor
 
 logger = logging.getLogger(__name__)
+
+AIRFLOW_READINESS_TIMEOUT_S = 3.0
+AIRFLOW_READINESS_CACHE_S = 10.0
 
 
 async def _database_unavailable(_: Request, exc: Exception) -> JSONResponse:
@@ -118,14 +123,23 @@ def create_app(
     )
     airflow_actions = AirflowActionService(airflow_client, metadata_service, audit_service)
 
-    async def airflow_readiness() -> ComponentStatus:
-        # Never "down": an Airflow outage must not take the control plane out of rotation.
+    airflow_readiness_cache: list[tuple[float, ComponentStatus]] = []
+
+    async def probe_airflow() -> ComponentStatus:
         if airflow_client is None:
             return ComponentStatus(status="degraded", detail="not configured")
         try:
-            health_status = await airflow_client.health(retry=False)
+            # Finish well inside the registry's own limit, which would report "down".
+            health_status = await asyncio.wait_for(
+                airflow_client.health(retry=False), AIRFLOW_READINESS_TIMEOUT_S
+            )
+        except TimeoutError:
+            return ComponentStatus(status="degraded", detail="timeout")
         except AirflowError as exc:
             return ComponentStatus(status="degraded", detail=exc.category)
+        except Exception as exc:  # never "down": see below
+            logger.warning("airflow readiness probe failed", exc_info=True)
+            return ComponentStatus(status="degraded", detail=f"error: {type(exc).__name__}")
         if not health_status.healthy:
             return ComponentStatus(
                 status="degraded",
@@ -133,6 +147,19 @@ def create_app(
                 f"scheduler {health_status.scheduler}",
             )
         return ComponentStatus(status="ok")
+
+    async def airflow_readiness() -> ComponentStatus:
+        # Never "down": an Airflow outage must not take the control plane out of rotation.
+        # Cached briefly so frequent readiness probes do not hammer Airflow.
+        now = time.monotonic()
+        if (
+            airflow_readiness_cache
+            and now - airflow_readiness_cache[0][0] < AIRFLOW_READINESS_CACHE_S
+        ):
+            return airflow_readiness_cache[0][1]
+        status = await probe_airflow()
+        airflow_readiness_cache[:] = [(now, status)]
+        return status
 
     readiness.register("airflow", airflow_readiness)
     metadata_refresher = MetadataRefresher(

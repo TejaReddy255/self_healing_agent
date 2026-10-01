@@ -33,7 +33,10 @@ class AirflowSettings(BaseSettings):
     airflow_read_timeout_s: float = Field(default=30.0, gt=0, le=300)
     airflow_get_retries: int = Field(default=3, ge=0, le=10)
     airflow_log_max_chars: int = Field(default=20_000, ge=1_000, le=1_000_000)
+    # Memory bound: the rolling tail of a log download is at most this many bytes.
     airflow_log_max_download_bytes: int = Field(default=2_097_152, ge=4_096, le=64 * 1_048_576)
+    # Time/traffic bound: stop reading a log after this many bytes (decision 2026-10-01).
+    airflow_log_download_ceiling_bytes: int = Field(default=33_554_432, ge=4_096, le=1_073_741_824)
     airflow_context_run_limit: int = Field(default=5, ge=1, le=100)
     recovery_poll_seconds: float = Field(default=30.0, gt=0, le=3_600)
 
@@ -57,6 +60,20 @@ class AirflowSettings(BaseSettings):
         if parts.query or parts.fragment:
             raise ValueError("AIRFLOW_BASE_URL must not have a query or fragment")
         return value.strip().rstrip("/")
+
+    @model_validator(mode="after")
+    def _log_limits_consistent(self) -> AirflowSettings:
+        if self.airflow_log_download_ceiling_bytes < self.airflow_log_max_download_bytes:
+            raise ValueError(
+                "AIRFLOW_LOG_DOWNLOAD_CEILING_BYTES must be at least AIRFLOW_LOG_MAX_DOWNLOAD_BYTES"
+            )
+        # Redaction needs whole lines around the kept tail; a byte window close to the character
+        # limit would cut secrets at its start.
+        if self.airflow_log_max_download_bytes < 2 * self.airflow_log_max_chars:
+            raise ValueError(
+                "AIRFLOW_LOG_MAX_DOWNLOAD_BYTES must be at least twice AIRFLOW_LOG_MAX_CHARS"
+            )
+        return self
 
     @model_validator(mode="after")
     def _credentials_with_url(self) -> AirflowSettings:

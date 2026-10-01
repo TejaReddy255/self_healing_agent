@@ -65,7 +65,10 @@ class AirflowContextProvider:
                     except AirflowNotFound:
                         error = "run not found"
             if selected is not None:
-                tasks = await self._client.list_task_instances(dag_id, selected.dag_run_id)
+                try:
+                    tasks = await self._client.list_task_instances(dag_id, selected.dag_run_id)
+                except AirflowNotFound:
+                    error = "run not found"  # deleted between the two calls
         except AirflowNotFound:
             unavailable, error = True, "dag not found"
         except AirflowError as exc:

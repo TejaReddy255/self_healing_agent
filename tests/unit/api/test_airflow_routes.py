@@ -178,3 +178,55 @@ def test_readiness_degrades_but_never_goes_down(
     assert ready.status_code == 200
     component = ready.json()["components"]["airflow"]
     assert component["status"] == "degraded" and detail in component["detail"]
+
+
+@pytest.mark.spec("S05-AC10")
+@pytest.mark.parametrize("run_id", ["..", "~", "a%2Fb", "a b"])
+def test_routes_reject_hostile_run_ids(
+    client: TestClient, scenario: FakeAirflow, run_id: str
+) -> None:
+    before = len(scenario.calls)
+    response = client.get(f"/airflow/dags/{DAG}/runs/{run_id}/tasks", headers=auth("viewer"))
+    assert response.status_code in (404, 422)
+    context = client.get(
+        f"/pipelines/{DAG}/context", params={"run_id": run_id}, headers=auth("viewer")
+    )
+    assert context.status_code == 422
+    assert [c for c in scenario.calls[before:] if "dagRuns/" in c.raw_path] == []
+
+
+def test_run_conf_is_redacted_for_viewers(client: TestClient, scenario: FakeAirflow) -> None:
+    scenario.add_run(DAG, "manual__secret", conf={"db_password": "hunter2", "batch": 7})
+    items = client.get(f"/airflow/dags/{DAG}/runs", headers=auth("viewer")).json()["items"]
+    conf = next(r for r in items if r["dag_run_id"] == "manual__secret")["conf"]
+    assert conf["batch"] == 7 and "hunter2" not in str(conf)
+
+
+class SlowHealth:
+    """An Airflow that never answers its health endpoint in time."""
+
+    calls = 0
+
+    async def health(self, *, retry: bool = True) -> object:
+        import asyncio
+
+        SlowHealth.calls += 1
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable")
+
+
+@pytest.mark.spec("S05-AC12")
+def test_slow_airflow_degrades_readiness_instead_of_failing_it(
+    make_settings: Callable[..., Settings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import backend.app as app_module
+
+    monkeypatch.setattr(app_module, "AIRFLOW_READINESS_TIMEOUT_S", 0.2)
+    SlowHealth.calls = 0
+    app = create_app(make_settings(), airflow_client=SlowHealth())  # type: ignore[arg-type]
+    with TestClient(app) as client:
+        first = client.get("/health/ready", headers=auth("viewer"))
+        assert first.status_code == 200
+        assert first.json()["components"]["airflow"] == {"status": "degraded", "detail": "timeout"}
+        client.get("/health/ready", headers=auth("viewer"))
+        assert SlowHealth.calls == 1  # cached: probes do not hammer Airflow

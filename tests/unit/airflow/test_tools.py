@@ -56,3 +56,16 @@ def test_tools_expose_no_write_capability() -> None:
     assert public == {"get_workflow_run_details", "get_failed_tasks_in_run", "get_task_logs"}
     forbidden = ("trigger", "patch", "pause", "clear", "delete", "post")
     assert not any(word in name for name in public for word in forbidden)
+
+
+@pytest.mark.spec("S05-AC7")
+def test_tools_depend_on_the_read_only_protocol() -> None:
+    from typing import get_type_hints
+
+    from backend.airflow.client import AirflowClient, AirflowReader
+
+    hints = get_type_hints(AirflowReadTools.__init__)
+    assert hints["client"] is AirflowReader
+    reader_methods = {n for n in dir(AirflowReader) if not n.startswith("_")}
+    assert {"trigger_dag_run", "patch_dag"}.isdisjoint(reader_methods)
+    assert {"trigger_dag_run", "patch_dag"} <= {n for n in dir(AirflowClient)}

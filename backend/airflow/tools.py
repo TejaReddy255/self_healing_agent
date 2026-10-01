@@ -7,11 +7,12 @@ is worker code (ADR-011) and operator actions go through the API.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.airflow.client import AirflowClient
+from backend.airflow.client import AirflowReader
 from backend.airflow.errors import AirflowNotFound, AirflowToolDenied
 from backend.airflow.logs import tail_and_redact
 from backend.airflow.models import AirflowDagRun, AirflowTaskInstance, TaskLog
@@ -27,7 +28,7 @@ class RunDetails(BaseModel):
 
 class AirflowReadTools:
     def __init__(
-        self, client: AirflowClient, allowed_dag_ids: Iterable[str], *, log_max_chars: int
+        self, client: AirflowReader, allowed_dag_ids: Iterable[str], *, log_max_chars: int
     ) -> None:
         self._client = client
         self._allowed = frozenset(allowed_dag_ids)
@@ -59,23 +60,37 @@ class AirflowReadTools:
         return tuple(t for t in tasks if t.failed)
 
     async def get_task_logs(
-        self, dag_id: str, run_id: str, task_id: str, try_number: int | None = None
+        self,
+        dag_id: str,
+        run_id: str,
+        task_id: str,
+        try_number: int | None = None,
+        map_index: int | None = None,
     ) -> TaskLog:
-        """The redacted tail of a task log; defaults to the task's latest try."""
+        """The redacted tail of a task log.
+
+        Without ``try_number`` it picks the task's latest try, preferring a failed instance (for
+        mapped tasks, the failed map index). ``map_index`` selects a mapped instance explicitly.
+        """
         self._check(dag_id)
-        map_index = -1
-        if try_number is None:
+        if try_number is None or map_index is None:
             tasks = [
                 t
                 for t in await self._client.list_task_instances(dag_id, run_id)
-                if t.task_id == task_id
+                if t.task_id == task_id and (map_index is None or t.map_index == map_index)
             ]
             if not tasks:
                 raise AirflowNotFound(f"task {task_id!r} is not part of run {run_id!r}")
-            latest = max(tasks, key=lambda t: (t.try_number, t.map_index))
-            try_number, map_index = max(latest.try_number, 1), latest.map_index
+            chosen = max(tasks, key=lambda t: (t.failed, t.try_number, -t.map_index))
+            if try_number is None:
+                try_number = max(chosen.try_number, 1)
+            if map_index is None:
+                map_index = chosen.map_index
         raw = await self._client.get_task_log(dag_id, run_id, task_id, try_number, map_index)
-        content, truncated, original = tail_and_redact(raw, self._log_max_chars)
+        # Redaction is CPU work on untrusted text: keep it off the event loop.
+        content, truncated, original = await asyncio.to_thread(
+            tail_and_redact, raw, self._log_max_chars
+        )
         return TaskLog(
             dag_id=dag_id,
             dag_run_id=run_id,

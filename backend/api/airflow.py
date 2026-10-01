@@ -6,8 +6,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Path, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict
 
+from backend.airflow.client import checked_identifier
 from backend.airflow.errors import (
     AirflowAuthError,
     AirflowConflict,
@@ -24,8 +25,13 @@ router = APIRouter(prefix="/airflow", tags=["airflow"])
 
 Viewer = Annotated[Actor, Depends(require_role(Role.VIEWER))]
 Operator = Annotated[Actor, Depends(require_role(Role.OPERATOR))]
-DagIdPath = Annotated[str, Path(min_length=1, max_length=250)]
-RunIdPath = Annotated[str, Path(min_length=1, max_length=250)]
+# Airflow's allowed identifier characters; dot segments and "~" are rejected as well (422).
+DagIdPath = Annotated[
+    str, Path(pattern=r"^[A-Za-z0-9_.-]{1,250}$"), AfterValidator(checked_identifier)
+]
+RunIdPath = Annotated[
+    str, Path(pattern=r"^[A-Za-z0-9_.~:+-]{1,250}$"), AfterValidator(checked_identifier)
+]
 
 
 class ItemList[T](BaseModel):

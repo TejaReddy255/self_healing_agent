@@ -68,3 +68,11 @@ def test_url_requires_credentials_and_never_echoes_them() -> None:
     configured = settings(airflow_base_url="https://airflow.example.com", **CREDS)
     assert "pw" not in configured.describe()
     assert "pw" not in repr(configured.airflow_password)
+
+
+def test_log_limits_must_be_consistent() -> None:
+    with pytest.raises(ValidationError, match="CEILING"):
+        settings(airflow_log_max_download_bytes=8192, airflow_log_download_ceiling_bytes=4096,
+                 airflow_log_max_chars=1000)  # fmt: skip
+    with pytest.raises(ValidationError, match="twice"):
+        settings(airflow_log_max_chars=20_000, airflow_log_max_download_bytes=30_000)
