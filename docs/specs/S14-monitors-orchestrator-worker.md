@@ -70,6 +70,9 @@ Incident creation (S15). DQ checks (S17/S18).
 ## Rollback
 Stop the worker. Revert code. The table is additive.
 
+## Open issues
+- From S04 (decision 2026-10-01): the monitoring worker process runs `backend.metadata.refresher.MetadataRefresher` so monitor selection follows metadata reloads within `METADATA_REFRESH_INTERVAL_S` (S14-AC6 relies on this).
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

@@ -53,6 +53,9 @@ schedule or trigger.
 ## Rollback
 Remove the schedule entries from `dq_profile` and reload metadata. Revert code.
 
+## Open issues
+- From S04 refinement: `dq_profile` entries need a `trigger` field (`on_profile_change`, `on_warning`). Add it here as an additive optional field on the S03 `DQProfileEntry` (not part of the approval hash) and update the contract snapshot. Until then, S04 metadata validation rejects a `trigger` key as `SCHEMA_INVALID`.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|
