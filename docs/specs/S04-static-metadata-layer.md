@@ -1,7 +1,7 @@
 ---
 id: S04
 title: Static Metadata Layer (META-01..04)
-status: IN_REVIEW
+status: DONE
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, solution-architect]
@@ -319,3 +319,4 @@ Revert the code. The `metadata/` directory is additive.
 - 2026-10-01 — product owner decided open issues 1 (auto-refresh every 30 s across processes) and 2 (start degraded). Added `refresher.py`, `MetadataHealth.state`/`rejected_candidate`, `METADATA_REFRESH_INTERVAL_S`, readiness `degraded`, and AC13/AC14.
 - 2026-10-01 — approved by product owner ("approve S04 and implement it"). Status IN_PROGRESS.
 - 2026-10-01 — implemented. Reviews by code-reviewer and solution-architect were addressed. Product owner chose the behavioural SOP hash: AC11 amended and ADR-016 added. AC6 and AC13 sharpened. Status IN_REVIEW.
+- 2026-10-01 — accepted by product owner. Status DONE; merged to `main`.
