@@ -32,6 +32,8 @@ TYPE_DIRECTORIES: dict[str, DocumentType] = {
 }
 DOCUMENT_SUFFIXES = frozenset({".yaml", ".yml", ".json"})
 IGNORED_NAMES = frozenset({"README.md"})
+# Metadata documents are shallow; deeper input is rejected before it can exhaust the stack.
+MAX_NESTING_DEPTH = 64
 
 
 class MetadataParseError(ValueError):
@@ -42,22 +44,39 @@ class MetadataParseError(ValueError):
 
 
 class _StrictSafeLoader(yaml.SafeLoader):
-    """Safe YAML without aliases or duplicate keys."""
+    """Safe YAML without aliases, duplicate or unhashable keys, or excessive nesting."""
+
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self._depth = 0
 
     def compose_node(self, parent: Node | None, index: int) -> Node | None:
         event = self.peek_event()  # type: ignore[no-untyped-call]
+        line = event.start_mark.line + 1
         if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
             raise MetadataParseError(
-                "UNSAFE_YAML",
-                f"anchors and aliases are not allowed (line {event.start_mark.line + 1})",
+                "UNSAFE_YAML", f"anchors and aliases are not allowed (line {line})"
             )
-        node: Node | None = super().compose_node(parent, index)
+        self._depth += 1
+        if self._depth > MAX_NESTING_DEPTH:
+            raise MetadataParseError(
+                "YAML_INVALID", f"nesting deeper than {MAX_NESTING_DEPTH} levels (line {line})"
+            )
+        try:
+            node: Node | None = super().compose_node(parent, index)
+        finally:
+            self._depth -= 1
         return node
 
     def construct_mapping(self, node: MappingNode, deep: bool = False) -> dict[Hashable, Any]:
         seen: set[object] = set()
         for key_node, _ in node.value:
             key = self.construct_object(key_node, deep=deep)
+            line = key_node.start_mark.line + 1
+            if isinstance(key, (list, dict, set)) or not isinstance(key, Hashable):
+                raise MetadataParseError(
+                    "YAML_INVALID", f"mapping keys must be scalars (line {line})"
+                )
             if key in seen:
                 raise MetadataParseError(
                     "YAML_INVALID",
@@ -97,8 +116,10 @@ def discover(root: Path) -> Discovery:
     issues: list[ValidationIssue] = []
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
-        if path.name in IGNORED_NAMES or any(part.startswith(".") for part in path.parts[-1:]):
-            continue
+        if path.name in IGNORED_NAMES or any(
+            part.startswith(".") for part in path.relative_to(root).parts
+        ):
+            continue  # README files and hidden entries such as .git/
         if path.is_symlink() or path.is_file():
             resolved = path.resolve()
             if not resolved.is_relative_to(root):
@@ -129,22 +150,36 @@ def discover(root: Path) -> Discovery:
     return Discovery(tuple(files), tuple(issues))
 
 
-def read_bytes(source: SourceFile, max_bytes: int) -> bytes:
+OVERSIZED = "oversized"
+UNREADABLE = "unreadable"
+
+
+def read_capped(source: SourceFile, max_bytes: int) -> bytes:
+    """Read at most ``max_bytes`` (+1 to detect growth since discovery). Callers hash and parse
+    these same bytes, so a snapshot's version always describes what it parsed."""
     if source.size > max_bytes:
         raise MetadataParseError(
             "FILE_TOO_LARGE", f"file is {source.size} bytes; the limit is {max_bytes}"
         )
-    data = source.path.read_bytes()
-    if len(data) > max_bytes:  # grew between discovery and read
+    with source.path.open("rb") as handle:
+        data = handle.read(max_bytes + 1)
+    if len(data) > max_bytes:
         raise MetadataParseError("FILE_TOO_LARGE", f"file exceeds {max_bytes} bytes")
     return data
 
 
-def file_sha256(source: SourceFile, max_bytes: int) -> str:
-    """Content hash for versioning; oversized files are identified by size, not read."""
-    if source.size > max_bytes:
-        return f"oversized:{source.size}"
-    return hashlib.sha256(source.path.read_bytes()).hexdigest()
+def content_hash(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def file_version_hash(source: SourceFile, max_bytes: int) -> str:
+    """The per-file hash used in tree versions, matching what ``build_candidate`` records."""
+    try:
+        return content_hash(read_capped(source, max_bytes))
+    except MetadataParseError:
+        return OVERSIZED
+    except OSError:
+        return UNREADABLE
 
 
 def tree_version(file_hashes: dict[str, str]) -> str:
@@ -166,6 +201,19 @@ def _no_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise MetadataParseError("YAML_INVALID", f"duplicate key {key!r}")
         result[key] = value
     return result
+
+
+def _too_deep(value: Any) -> bool:
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if depth > MAX_NESTING_DEPTH:
+            return True
+        if isinstance(item, dict):
+            stack.extend((v, depth + 1) for v in item.values())
+        elif isinstance(item, list):
+            stack.extend((v, depth + 1) for v in item)
+    return False
 
 
 def parse(source: SourceFile, data: bytes) -> dict[str, Any]:
@@ -193,6 +241,12 @@ def parse(source: SourceFile, data: bytes) -> dict[str, Any]:
         raise MetadataParseError("YAML_INVALID", f"invalid YAML{where}") from exc
     except json.JSONDecodeError as exc:
         raise MetadataParseError("YAML_INVALID", f"invalid JSON (line {exc.lineno})") from exc
+    except RecursionError as exc:
+        raise MetadataParseError(
+            "YAML_INVALID", f"nesting deeper than {MAX_NESTING_DEPTH} levels"
+        ) from exc
+    if _too_deep(parsed):
+        raise MetadataParseError("YAML_INVALID", f"nesting deeper than {MAX_NESTING_DEPTH} levels")
     if not isinstance(parsed, dict):
         raise MetadataParseError("YAML_INVALID", "the top level must be a mapping")
     return parsed

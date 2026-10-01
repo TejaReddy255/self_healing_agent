@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,8 +9,8 @@ import pytest
 from pydantic import ValidationError
 
 from backend.domain.common import SystemName
-from backend.domain.hashing import canonical_json
-from backend.domain.sop import SOPReference
+from backend.domain.hashing import sop_content_sha256
+from backend.domain.sop import SOPProposal, SOPReference
 from backend.metadata.context_builder import MetadataContextBuilder
 from backend.metadata.models import DocumentType, MetadataQuery, PipelineMetadata
 from backend.metadata.repository import MetadataSnapshot
@@ -145,16 +144,23 @@ def test_get_sops_returns_applicable_approved_sops_only(tmp_path: Path) -> None:
 
 
 @pytest.mark.spec("S04-AC11")
-def test_sop_content_hash_pins_exact_content(tmp_path: Path) -> None:
+def test_sop_content_hash_pins_behavioural_content(tmp_path: Path) -> None:
     tree = seed_tree(tmp_path)
     sop = load(tree).get_sop("SOP-PG-002")
     assert sop is not None
-    expected = hashlib.sha256(
-        canonical_json(sop.model_dump(mode="json", exclude={"content_sha256"}))
-    ).hexdigest()
+    expected = sop_content_sha256(sop.sop_id, sop)
     assert sop.content_sha256 == expected
     again = load(tree).get_sop("SOP-PG-002")
     assert again is not None and again.content_sha256 == expected
+
+    # Catalogue edits (ADR-016) leave the pin alone, so approvals in flight stay valid.
+    edit_doc(
+        tree,
+        SOP_DUPLICATES,
+        lambda d: d.update(tags=["renamed"], version="7", pipeline_ids=["customer_daily_load"]),
+    )
+    cosmetic = load(tree).get_sop("SOP-PG-002")
+    assert cosmetic is not None and cosmetic.content_sha256 == expected
 
     edit_doc(tree, SOP_DUPLICATES, lambda d: d["stop_conditions"].append("row count drops"))
     changed = load(tree).get_sop("SOP-PG-002")
@@ -162,6 +168,29 @@ def test_sop_content_hash_pins_exact_content(tmp_path: Path) -> None:
 
     reference = SOPReference(sop_id=sop.sop_id, version=sop.version, content_sha256=expected)
     assert reference.content_sha256 == expected
+
+
+@pytest.mark.spec("S04-AC11")
+def test_sop_hash_matches_a_runtime_approved_proposal_with_the_same_content() -> None:
+    # S10 hashes approved_sops from a SOPProposal; YAML and DB SOPs share one hash domain.
+    sop = load(DEFAULT_METADATA_DIR).get_sop("SOP-PG-001")
+    assert sop is not None
+    proposal = SOPProposal.model_validate(
+        sop.model_dump(mode="json", include=set(SOPProposal.model_fields))
+    )
+    assert sop_content_sha256("SOP-PG-001", proposal) == sop.content_sha256
+    assert sop_content_sha256("SOP-OTHER", proposal) != sop.content_sha256
+
+
+def test_sop_dump_round_trips_despite_the_derived_hash() -> None:
+    sop = load(DEFAULT_METADATA_DIR).get_sop("SOP-PG-002")
+    assert sop is not None
+    dumped = sop.model_dump(mode="json")
+    assert "content_sha256" in dumped
+    tampered = dumped | {"content_sha256": "0" * 64}
+    from backend.metadata.models import SOPMetadata
+
+    assert SOPMetadata.model_validate(tampered).content_sha256 == sop.content_sha256
 
 
 # --- AC12: pipeline semantics ----------------------------------------------------------------
@@ -218,3 +247,50 @@ async def test_context_builder_bundles_reference_metadata() -> None:
     assert {i.ref_id for i in context.items} >= {"customer_daily_load", "CUSTOMER-DQ", "KI-DQ-001"}
     assert all(i.source == "metadata" and i.version == context.version for i in context.items)
     assert await MetadataContextBuilder(service).build("unknown") is None
+
+
+@pytest.mark.spec("S04-AC5")
+def test_system_wide_runbooks_apply_by_dataset_system(tmp_path: Path) -> None:
+    tree = seed_tree(tmp_path)
+    shared = _runbook("RB-PG-ANY", "OTHER") | {"pipeline_ids": [], "systems": ["postgresql"]}
+    write_doc(tree, "runbooks/shared.yaml", shared)
+    write_doc(
+        tree,
+        "runbooks/s3.yaml",
+        _runbook("RB-S3", "OTHER") | {"pipeline_ids": [], "systems": ["s3"]},
+    )
+    ids = [r.runbook_id for r in load(tree).runbooks("customer_daily_load")]
+    assert "RB-PG-ANY" in ids and "RB-S3" not in ids
+
+
+def test_returned_envelopes_are_copies() -> None:
+    snap = load(DEFAULT_METADATA_DIR)
+    doc = snap.get_document("KI-DQ-001")
+    assert doc is not None
+    doc.content["symptoms"] = ["tampered"]
+    fresh = snap.get_document("KI-DQ-001")
+    assert fresh is not None and fresh.content["symptoms"] != ["tampered"]
+
+
+async def test_context_builder_accepts_an_injected_sop_source() -> None:
+    service = MetadataService(settings_for(DEFAULT_METADATA_DIR))
+    service.load_initial()
+
+    def sop_source(
+        pipeline_id: str, category: str | None
+    ) -> tuple[tuple[str, dict[str, Any]], ...]:
+        return (("SOP-DB-001", {"title": "approved at runtime"}),)
+
+    context = await MetadataContextBuilder(service, sop_source).build("customer_daily_load")
+    assert context is not None
+    sops = [i for i in context.items if i.document_type is DocumentType.SOP]
+    assert [(i.ref_id, i.content) for i in sops] == [
+        ("SOP-DB-001", {"title": "approved at runtime"})
+    ]
+
+
+def test_service_satisfies_the_reader_protocol() -> None:
+    from backend.metadata.service import MetadataReader
+
+    service = MetadataService(settings_for(DEFAULT_METADATA_DIR))
+    assert isinstance(service, MetadataReader)

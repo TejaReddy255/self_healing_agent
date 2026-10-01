@@ -169,6 +169,9 @@ def test_invalid_tree_at_startup_starts_empty_and_recovers(
         assert [e["code"] for e in health["errors"]] == ["BROKEN_REFERENCE"]
         pipeline = client.get("/metadata/pipelines/customer_daily_load", headers=auth("viewer"))
         assert pipeline.status_code == 404
+        still_broken = client.post("/metadata/reload", headers=auth("admin")).json()
+        assert "no metadata is loaded" in still_broken["message"]
+        assert still_broken["details"]["active_version"] is None
 
         (tree / KNOWN_ISSUE).write_bytes(original)
         reload = client.post("/metadata/reload", headers=auth("admin"))

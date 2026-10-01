@@ -66,7 +66,7 @@ service only through adapters. No imports cross in either direction. The DQ serv
 
 ## Commands
 
-Available now (S01–S02):
+Available now (S01–S04):
 
 ```text
 uv sync                                                    # install (uv.lock is committed)
@@ -79,6 +79,7 @@ uv run python tools/trace.py --strict                      # spec AC ↔ test tr
 uv run python tools/new_token.py <subject> <role>          # create an API token entry
 docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d   # Postgres on 127.0.0.1:55432
 uv run python -m backend.db.migrate up|status|verify       # schema migrations (the app never runs DDL)
+curl -X POST -H "Authorization: Bearer <admin token>" localhost:8000/metadata/reload   # validate + swap metadata/ (auto every 30 s)
 uv run uvicorn backend.main:app --reload                   # API on :8000
 uv run streamlit run frontend/app.py                       # operator console on :8501
 ```

@@ -277,3 +277,30 @@ def test_unknown_schema_version_is_rejected() -> None:
     with pytest.raises(ValidationError, match="schema_version"):
         ApprovalPayload.model_validate(payload)
     assert '"schema_version":1' in vector("minimal-no-match")["canonical"]
+
+
+# --- ADR-016: SOP content hash (S04-AC11) ----------------------------------------------------
+
+GOLDEN_SOP = {
+    "title": "Remove duplicate rows",
+    "category": "DUPLICATE_DATA",
+    "target_system": "postgresql",
+    "risk_level": "HIGH",
+    "required_evidence": ["duplicate count"],
+    "remediation_steps": ["delete duplicates keeping the earliest load"],
+    "verification_steps": ["duplicate count is 0"],
+    "stop_conditions": ["source has duplicates"],
+}
+GOLDEN_SOP_SHA256 = "1475d5502b13b484fd2d2e338b1d8e741f8ffb992f0b6b72b23c7cb42560b507"
+
+
+@pytest.mark.spec("S04-AC11")
+def test_sop_content_hash_golden_vector() -> None:
+    from backend.domain.hashing import SOP_HASH_FIELDS, sop_content_sha256
+    from backend.domain.sop import SOPProposal
+
+    proposal = SOPProposal.model_validate(GOLDEN_SOP)
+    assert sop_content_sha256("SOP-GOLDEN-1", proposal) == GOLDEN_SOP_SHA256
+    assert set(SOP_HASH_FIELDS) == set(GOLDEN_SOP)
+    # human_approval_required is always true, so it is not part of the behavioural content.
+    assert set(SOPProposal.model_fields) - set(SOP_HASH_FIELDS) == {"human_approval_required"}

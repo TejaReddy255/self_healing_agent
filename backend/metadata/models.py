@@ -6,11 +6,10 @@ reuse the S03 contract base, so documents are frozen, reject unknown fields and 
 
 from __future__ import annotations
 
-import hashlib
 from datetime import date, datetime
 from enum import StrEnum
 from functools import cached_property
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     ConfigDict,
@@ -37,7 +36,7 @@ from backend.domain.common import (
     UtcDatetime,
 )
 from backend.domain.dq import DQProfile
-from backend.domain.hashing import canonical_json
+from backend.domain.hashing import sop_content_sha256
 from backend.domain.sop import SOPProposal
 
 DocumentId = Annotated[
@@ -223,12 +222,19 @@ class SOPMetadata(SOPProposal):
     pipeline_ids: tuple[PipelineId, ...] = ()
     tags: Tags = ()
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_derived_hash(cls, data: Any) -> Any:
+        # content_sha256 is derived: accept it in round-tripped dumps, never trust it.
+        if isinstance(data, dict) and "content_sha256" in data:
+            data = {k: v for k, v in data.items() if k != "content_sha256"}
+        return data
+
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
     def content_sha256(self) -> str:
-        """Pins this exact SOP content in an approval (``SOPReference.content_sha256``)."""
-        content = self.model_dump(mode="json", exclude={"content_sha256"})
-        return hashlib.sha256(canonical_json(content)).hexdigest()
+        """Pins this SOP's behavioural content in an approval (ADR-016)."""
+        return sop_content_sha256(self.sop_id, self)
 
 
 class Runbook(Contract):

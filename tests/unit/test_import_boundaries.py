@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -74,15 +75,49 @@ def test_checker_flags_forbidden_imports(tmp_path: Path) -> None:
 
 REPO = DOMAIN.parent.parent
 METADATA_PACKAGE = REPO / "backend" / "metadata"
-SCANNED = [REPO / "backend", REPO / "frontend", REPO / "tools"]
+SCANNED = [
+    p
+    for p in (REPO / name for name in ("backend", "frontend", "tools", "dq_agents", "dq_service",
+                                       "mcp_servers", "integrations"))
+    if p.is_dir()
+]  # fmt: skip
+FILE_READERS = {"open", "read_text", "read_bytes"}
+# A path into the tree, e.g. "metadata/sops/x.yaml"; the bare word "metadata" is a route or name.
+METADATA_PATH = re.compile(r"(^|[/\\])metadata[/\\]")
 METADATA_NAMES = {"metadata_dir", "METADATA_DIR", "DEFAULT_METADATA_DIR", "resolved_dir"}
 YAML_LOADERS = {"load", "safe_load", "full_load", "unsafe_load", "load_all", "safe_load_all"}
 
 
+def _docstrings(tree: ast.AST) -> set[int]:
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and body and isinstance(body[0], ast.Expr):
+            value = body[0].value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                ids.add(id(value))
+    return ids
+
+
 def metadata_file_access(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    docstrings = _docstrings(tree)
     found: list[str] = []
     for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+            and METADATA_PATH.search(node.value)
+        ):
+            found.append(f"{node.lineno}: path literal {node.value!r}")
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            segment = ast.get_source_segment(source, node) or ""
+            if name in FILE_READERS and "metadata" in segment.lower():
+                found.append(f"{node.lineno}: {name}() on a metadata path")
         if isinstance(node, ast.Attribute):
             if node.attr in METADATA_NAMES:
                 found.append(f"{node.lineno}: .{node.attr}")
@@ -117,10 +152,15 @@ def test_metadata_boundary_checker_flags_direct_reads(tmp_path: Path) -> None:
     sample.write_text(
         "import yaml\nfrom backend.metadata.settings import DEFAULT_METADATA_DIR\n"
         "data = yaml.safe_load((DEFAULT_METADATA_DIR / 'pipelines/x.yaml').read_text())\n"
-        "path = settings.metadata_dir\n",
+        "path = settings.metadata_dir\n"
+        "raw = Path('metadata/pipelines/x.yaml').read_bytes()\n"
+        "handle = open(metadata_root / 'sops' / 'a.yaml')\n",
         encoding="utf-8",
     )
     hits = metadata_file_access(sample)
     assert any("yaml.safe_load" in h for h in hits)
     assert any("DEFAULT_METADATA_DIR" in h for h in hits)
     assert any(".metadata_dir" in h for h in hits)
+    assert any("path literal 'metadata/pipelines/x.yaml'" in h for h in hits)
+    assert any("read_bytes()" in h for h in hits)
+    assert any("open()" in h for h in hits)

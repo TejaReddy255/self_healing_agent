@@ -90,6 +90,7 @@ approve returns 202 but jobs remain QUEUED.
 - From S03 review: at PRECHECK and before the first write, recompute the hash from the persisted canonical bytes (not an in-memory model: `frozen` is shallow for dicts). Refuse unknown `ApprovalPayload.schema_version`. Drain APPROVED jobs before any deploy that changes the payload contract.
 - From S03 (decision 2026-09-30): incident updates use `incident_status_for(stage, recovery_skipped=…)` through `can_transition`. A failed PRECHECK → REPLAN_REQUIRED is now a legal APPROVED → REPLAN_REQUIRED edge.
 - From S03 review: consider a separate `HealingReport` for W4 output (observed post-state, stop-condition evidence). It is additive.
+- From S04 review: PRECHECK re-checks `PipelineMetadata.effective_permitted_systems()` against the current snapshot (fail closed if the target system is no longer permitted) and checks that the pinned SOP (`SOPReference`) is not DEPRECATED. ADR-016 keeps the hash stable across catalogue edits.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

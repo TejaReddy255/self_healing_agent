@@ -2,7 +2,10 @@
 
 Consumers never read metadata files (FR-004). Callers that need several results from *one*
 consistent view take ``snapshot()`` once and query it; the async convenience methods each read
-the snapshot that is active at the time of the call.
+the snapshot that is active at the time of the call. Returned models are shared by all readers of
+a snapshot: treat them as read-only (copy before redacting or truncating, S09/S16).
+
+Consumers should depend on ``MetadataReader`` (ADR-012), so tests can supply a fake.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from backend.metadata.models import (
     BusinessRuleSet,
@@ -30,12 +33,56 @@ from backend.metadata.models import (
 from backend.metadata.repository import MetadataSnapshot
 from backend.metadata.settings import MetadataSettings
 from backend.metadata.validators import Candidate, build_candidate, current_version
-from backend.observability.readiness import ComponentStatus
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_SUBJECT = "system:metadata-refresher"
 SYSTEM_ROLE = "service"
+# A refresh only reloads a tree whose version is the same twice, this far apart, so a half-done
+# git pull or volume sync is not validated (and possibly swapped in) mid-write.
+DEFAULT_REFRESH_SETTLE_S = 1.0
+
+MetadataState = Literal["LOADED", "DEGRADED", "EMPTY"]
+
+
+@runtime_checkable
+class MetadataReader(Protocol):
+    """Read-only metadata access for consumers (monitoring, RCA, DQ, incidents)."""
+
+    @property
+    def state(self) -> MetadataState: ...
+
+    def snapshot(self) -> MetadataSnapshot: ...
+
+    async def get_pipeline(self, pipeline_id: str) -> PipelineMetadata | None: ...
+
+    async def get_pipeline_by_dag_id(self, dag_id: str) -> PipelineMetadata | None: ...
+
+    async def list_pipelines(self) -> tuple[PipelineMetadata, ...]: ...
+
+    async def get_business_rules(self, pipeline_id: str) -> tuple[BusinessRuleSet, ...]: ...
+
+    async def get_sops(
+        self, pipeline_id: str, category: str | None = None
+    ) -> tuple[SOPMetadata, ...]: ...
+
+    async def get_sop(self, sop_id: str) -> SOPMetadata | None: ...
+
+    async def get_runbooks(
+        self, pipeline_id: str, category: str | None = None
+    ) -> tuple[Runbook, ...]: ...
+
+    async def get_known_issues(
+        self, pipeline_id: str, category: str | None = None
+    ) -> tuple[KnownIssue, ...]: ...
+
+    async def get_historical_incidents(
+        self, pipeline_id: str, category: str | None = None
+    ) -> tuple[HistoricalIncident, ...]: ...
+
+    async def get_ownership(self, pipeline_id: str) -> Ownership | None: ...
+
+    async def search(self, query: MetadataQuery) -> tuple[MetadataDocument, ...]: ...
 
 
 class ReloadAuditor(Protocol):
@@ -53,11 +100,13 @@ class MetadataService:
         *,
         auditor: ReloadAuditor | None = None,
         clock: Callable[[], datetime] = _utcnow,
+        refresh_settle_s: float = DEFAULT_REFRESH_SETTLE_S,
     ) -> None:
         self._root = settings.resolved_dir()
         self._max_bytes = settings.metadata_max_file_bytes
         self._auditor = auditor
         self._clock = clock
+        self._refresh_settle_s = refresh_settle_s
         self._lock = asyncio.Lock()
         self._snapshot = MetadataSnapshot.empty(clock())
         self._rejected: RejectedCandidate | None = None
@@ -103,7 +152,7 @@ class MetadataService:
         return self._snapshot
 
     @property
-    def state(self) -> Literal["LOADED", "DEGRADED", "EMPTY"]:
+    def state(self) -> MetadataState:
         if self._snapshot.is_empty:
             return "EMPTY"
         return "DEGRADED" if self._rejected is not None else "LOADED"
@@ -120,71 +169,81 @@ class MetadataService:
             rejected_candidate=self._rejected,
         )
 
-    async def readiness(self) -> ComponentStatus:
-        state = self.state
-        if state == "EMPTY":
-            return ComponentStatus(status="down", detail=f"{len(self._snapshot.errors)} errors")
-        if state == "DEGRADED" and self._rejected is not None:
-            return ComponentStatus(
-                status="degraded",
-                detail=f"candidate {self._rejected.version[:12]} rejected: "
-                f"{len(self._rejected.errors)} errors",
-            )
-        return ComponentStatus(status="ok")
-
     # --- reload -----------------------------------------------------------------------------
 
     async def reload(self, subject: str = SYSTEM_SUBJECT, role: str = SYSTEM_ROLE) -> ReloadResult:
         """Validate the tree on disk and swap it in only if it has no errors (atomic)."""
         async with self._lock:
-            candidate = await asyncio.to_thread(self._build)
-            previous = self._snapshot.version
-            if candidate.snapshot is not None and candidate.version == previous:
-                self._rejected = None
-                result = self._result("UNCHANGED", previous, candidate)
-            elif candidate.snapshot is None:
-                self._last_rejected_version = candidate.version
-                if self._snapshot.is_empty:
-                    self._snapshot = MetadataSnapshot.empty(
-                        self._clock(), candidate.errors, candidate.warnings
-                    )
-                else:
-                    self._rejected = RejectedCandidate(
-                        version=candidate.version,
-                        checked_at=self._clock(),
-                        errors=candidate.errors,
-                        warnings=candidate.warnings,
-                    )
-                result = self._result("REJECTED", previous, candidate)
-                logger.warning(
-                    "metadata reload rejected; keeping last-known-good",
-                    extra={
-                        "candidate_version": candidate.version,
-                        "active_version": previous,
-                        "error_count": len(candidate.errors),
-                    },
-                )
-            else:
-                self._snapshot = candidate.snapshot  # single reference swap
-                self._rejected = None
-                self._last_rejected_version = None
-                result = self._result("RELOADED", previous, candidate)
-                logger.info(
-                    "metadata reloaded",
-                    extra={"previous_version": previous, "metadata_version": candidate.version},
-                )
+            result = await self._reload_locked()
         await self._audit(result, subject, role)
         return result
 
+    async def _reload_locked(self) -> ReloadResult:
+        candidate = await asyncio.to_thread(self._build)
+        previous = self._snapshot.version
+        if candidate.snapshot is not None and candidate.version == previous:
+            self._rejected = None
+            self._last_rejected_version = None
+            result = self._result("UNCHANGED", previous, candidate)
+        elif candidate.snapshot is None:
+            self._last_rejected_version = candidate.version
+            if self._snapshot.is_empty:
+                self._snapshot = MetadataSnapshot.empty(
+                    self._clock(), candidate.errors, candidate.warnings
+                )
+            else:
+                self._rejected = RejectedCandidate(
+                    version=candidate.version,
+                    checked_at=self._clock(),
+                    errors=candidate.errors,
+                    warnings=candidate.warnings,
+                )
+            result = self._result("REJECTED", previous, candidate)
+            logger.warning(
+                "metadata reload rejected; keeping last-known-good",
+                extra={
+                    "candidate_version": candidate.version,
+                    "active_version": previous,
+                    "error_count": len(candidate.errors),
+                },
+            )
+        else:
+            self._snapshot = candidate.snapshot  # single reference swap
+            self._rejected = None
+            self._last_rejected_version = None
+            result = self._result("RELOADED", previous, candidate)
+            logger.info(
+                "metadata reloaded",
+                extra={"previous_version": previous, "metadata_version": candidate.version},
+            )
+        return result
+
     async def refresh_if_changed(self) -> ReloadResult | None:
-        """Reload when the tree on disk changed since the last swap or rejection."""
-        version = await asyncio.to_thread(current_version, self._root, self._max_bytes)
-        if version == self._snapshot.version:
-            self._rejected = None  # the files were restored to the active tree
-            return None
-        if version == self._last_rejected_version:
-            return None  # already reported; wait for the next change
-        return await self.reload(SYSTEM_SUBJECT, SYSTEM_ROLE)
+        """Reload when the tree on disk changed since the last swap or rejection.
+
+        Runs under the reload lock, so it cannot interleave with an admin reload. A changed tree
+        is reloaded only when its version is stable across ``refresh_settle_s``.
+        """
+        async with self._lock:
+            version = await self._disk_version()
+            if version == self._snapshot.version:
+                # The files match the active tree again: forget any earlier rejection, so the
+                # same broken bytes are validated (and audited) again if they come back.
+                self._rejected = None
+                self._last_rejected_version = None
+                return None
+            if version == self._last_rejected_version:
+                return None  # already reported; wait for the next change
+            if self._refresh_settle_s > 0:
+                await asyncio.sleep(self._refresh_settle_s)
+                if await self._disk_version() != version:
+                    return None  # still being written; look again next interval
+            result = await self._reload_locked()
+        await self._audit(result, SYSTEM_SUBJECT, SYSTEM_ROLE)
+        return result
+
+    async def _disk_version(self) -> str:
+        return await asyncio.to_thread(current_version, self._root, self._max_bytes)
 
     def _result(
         self,

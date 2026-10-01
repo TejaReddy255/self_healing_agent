@@ -76,6 +76,7 @@ Revert code. The `analyses` table is additive.
 ## Open issues
 - From S03 (decision 2026-09-30): "writes need ≥ 1 verification assertion" is enforced on `ApprovalPayload`, not on `RemediationPlan`. An RCA whose plan lacks assertions stays schema-valid, and N5 marks it `executable_plan=false` (S09-AC4 stands as written).
 - From S03 review: `DiagnosticService` rejects `fixes_applied=true`, `pipeline_status="remediated"` and findings labelled `EXECUTED`/`VERIFIED_FIXED` from the read-only RCA. Contract models are `extra="forbid"`, so expect more repair retries; measure them in evals.
+- From S04 review: put the combined runtime `PipelineContextBuilder` in `backend/services/`, composing `backend.metadata.context_builder.MetadataContextBuilder` with the S05 client, so `backend/metadata` stays free of Airflow. Build each context from one `snapshot()`. Copy metadata content before redacting or truncating, and persist `metadata_version` on the analysis.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

@@ -229,6 +229,9 @@ SENTINEL = "s04_yaml_rce_sentinel"
             id="billion-laughs",
         ),
         pytest.param("sop_id: A\nsop_id: B\n", "YAML_INVALID", id="duplicate-key"),
+        pytest.param("? [a]\n: 1\n", "YAML_INVALID", id="unhashable-key"),
+        pytest.param("? {a: 1}\n: 1\n", "YAML_INVALID", id="mapping-key"),
+        pytest.param("a: " + "[" * 5000 + "]" * 5000 + "\n", "YAML_INVALID", id="deep-nesting"),
         pytest.param("- just\n- a list\n", "YAML_INVALID", id="not-a-mapping"),
         pytest.param("sop_id: [unclosed\n", "YAML_INVALID", id="syntax"),
     ],
@@ -248,8 +251,12 @@ def test_unsafe_yaml_is_rejected(
 @pytest.mark.spec("S04-AC9")
 @pytest.mark.parametrize(
     "text",
-    ['{"sop_id": "A", "sop_id": "B"}', '{"value": NaN}'],
-    ids=["duplicate-key", "nan"],
+    [
+        '{"sop_id": "A", "sop_id": "B"}',
+        '{"value": NaN}',
+        '{"a": ' + "[" * 50000 + "]" * 50000 + "}",
+    ],
+    ids=["duplicate-key", "nan", "deep-nesting"],
 )
 def test_ambiguous_json_is_rejected(tmp_path: Path, text: str) -> None:
     tree = seed_tree(tmp_path)
@@ -289,3 +296,24 @@ def test_junction_outside_the_tree_is_rejected(tmp_path: Path) -> None:
     _winapi.CreateJunction(str(outside), str(tree / "sops" / "linked"))
     errors = build(tree).errors
     assert [i.file for i in errors if i.code == "PATH_ESCAPE"] == ["sops/linked/escape.yaml"]
+
+
+def test_hidden_directories_are_ignored(tmp_path: Path) -> None:
+    tree = seed_tree(tmp_path)
+    write_text(tree, ".git/config", "[core]")
+    write_text(tree, "sops/.draft/wip.yaml", "anything: at all")
+    candidate = build(tree)
+    assert candidate.errors == () and candidate.warnings == ()
+
+
+@pytest.mark.spec("S04-AC9")
+def test_hostile_file_never_crashes_startup_or_reload(tmp_path: Path) -> None:
+    from backend.metadata.service import MetadataService
+    from tests.fakes.metadata_trees import settings_for
+
+    tree = seed_tree(tmp_path)
+    write_text(tree, "sops/bad.yaml", "? [a]\n: 1\n")
+    service = MetadataService(settings_for(tree))
+    health = service.load_initial()  # must not raise (S04-AC14)
+    assert health.state == "EMPTY"
+    assert [e.code for e in health.errors] == ["YAML_INVALID"]

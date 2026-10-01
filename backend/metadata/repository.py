@@ -3,6 +3,10 @@
 A snapshot is built once from a validated tree and never mutated. Reload replaces the whole
 snapshot reference, so a reader that holds one snapshot sees a consistent view. Every query result
 is sorted by document ID, independent of file discovery order.
+
+Applicability: a SOP or runbook applies to a pipeline when it lists the pipeline, or lists no
+pipelines and targets one of the pipeline's systems (SOPs: its permitted systems; runbooks: any of
+its dataset systems). ``search`` instead filters the envelope fields literally.
 """
 
 from __future__ import annotations
@@ -118,8 +122,9 @@ class MetadataSnapshot:
         return {t: len(self.documents[t]) for t in DocumentType}
 
     def get_document(self, document_id: str) -> MetadataDocument | None:
+        """A copy: envelope ``content`` dicts must never be edited in the shared snapshot."""
         doc = self._by_id.get(document_id)
-        return doc.envelope if doc else None
+        return doc.envelope.model_copy(deep=True) if doc else None
 
     # --- pipelines --------------------------------------------------------------------------
 
@@ -170,10 +175,18 @@ class MetadataSnapshot:
         )
 
     def runbooks(self, pipeline_id: str, category: str | None = None) -> tuple[Runbook, ...]:
+        pipeline = self.get_pipeline(pipeline_id)
+        if pipeline is None:
+            return ()
+        systems = pipeline.dataset_systems()
         return tuple(
             r
             for r in self._models(DocumentType.RUNBOOK, Runbook)
-            if pipeline_id in r.pipeline_ids and (category is None or category in r.categories)
+            if (category is None or category in r.categories)
+            and (
+                pipeline_id in r.pipeline_ids
+                or (not r.pipeline_ids and bool(set(r.systems) & systems))
+            )
         )
 
     def known_issues(self, pipeline_id: str, category: str | None = None) -> tuple[KnownIssue, ...]:
@@ -200,17 +213,42 @@ class MetadataSnapshot:
 
     # --- unfiltered lists (API browsing) ------------------------------------------------------
 
-    def all_sops(self) -> tuple[SOPMetadata, ...]:
-        return self._models(DocumentType.SOP, SOPMetadata)
+    def list_sops(
+        self,
+        *,
+        pipeline_id: str | None = None,
+        category: str | None = None,
+        status: str | None = "APPROVED",
+    ) -> tuple[SOPMetadata, ...]:
+        """SOPs filtered by applicability (when ``pipeline_id`` is set), category and status."""
+        candidates = (
+            self._models(DocumentType.SOP, SOPMetadata)
+            if pipeline_id is None
+            else self.sops(pipeline_id, approved_only=False)
+        )
+        return tuple(
+            s
+            for s in candidates
+            if (category is None or s.category == category)
+            and (status is None or s.status == status)
+        )
 
     def all_business_rules(self) -> tuple[BusinessRuleSet, ...]:
         return self._models(DocumentType.BUSINESS_RULE, BusinessRuleSet)
 
-    def all_runbooks(self) -> tuple[Runbook, ...]:
-        return self._models(DocumentType.RUNBOOK, Runbook)
+    def all_runbooks(self, category: str | None = None) -> tuple[Runbook, ...]:
+        return tuple(
+            r
+            for r in self._models(DocumentType.RUNBOOK, Runbook)
+            if category is None or category in r.categories
+        )
 
-    def all_known_issues(self) -> tuple[KnownIssue, ...]:
-        return self._models(DocumentType.KNOWN_ISSUE, KnownIssue)
+    def all_known_issues(self, category: str | None = None) -> tuple[KnownIssue, ...]:
+        return tuple(
+            k
+            for k in self._models(DocumentType.KNOWN_ISSUE, KnownIssue)
+            if category is None or k.category == category
+        )
 
     def all_ownership(self) -> tuple[Ownership, ...]:
         return self._models(DocumentType.OWNERSHIP, Ownership)
@@ -231,5 +269,5 @@ class MetadataSnapshot:
                     continue
                 if query.tags and not set(query.tags) & set(env.tags):
                     continue
-                results.append(env)
+                results.append(env.model_copy(deep=True))
         return tuple(results)

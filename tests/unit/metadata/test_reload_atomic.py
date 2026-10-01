@@ -164,3 +164,40 @@ async def test_every_reload_attempt_is_audited_and_audit_failure_does_not_undo(
     assert (await flaky.reload()).outcome == "RELOADED"
     pipeline = await flaky.get_pipeline("customer_daily_load")
     assert pipeline is not None and pipeline.name == "Still swapped"
+
+
+@pytest.mark.spec("S04-AC3")
+async def test_reader_threads_never_observe_a_mixed_snapshot(tmp_path: Path) -> None:
+    # Worker code may read metadata from threads (to_thread, executors): the reference swap must
+    # be atomic for them too.
+    tree = seed_tree(tmp_path)
+    service = make_service(tree)
+    expected_name = {service.snapshot().version: "Customer Daily Load"}
+    stop = threading.Event()
+    failures: list[str] = []
+    counts = [0, 0]
+
+    def reader(slot: int) -> None:
+        while not stop.is_set():
+            snap = service.snapshot()
+            pipeline = snap.get_pipeline("customer_daily_load")
+            name = expected_name.get(snap.version)
+            if pipeline is None or name is None or pipeline.name != name:
+                failures.append(f"{snap.version}: {pipeline and pipeline.name}")
+            counts[slot] += 1
+            time.sleep(0.0005)  # pure spinning would starve the reload of the GIL
+
+    threads = [threading.Thread(target=reader, args=(i,)) for i in range(2)]
+    for i in range(6):
+        name = f"Threaded {i}"
+        rename_pipeline(tree, name)
+        expected_name[current_version(tree, 1 << 20)] = name
+        if i == 0:
+            for thread in threads:
+                thread.start()
+        assert (await service.reload()).outcome == "RELOADED"
+    stop.set()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert failures == []
+    assert min(counts) > 0

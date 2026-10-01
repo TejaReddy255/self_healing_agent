@@ -26,7 +26,7 @@ class RecordingAuditor:
 def setup(tmp_path: Path) -> tuple[Path, MetadataService, RecordingAuditor, list[int]]:
     tree = seed_tree(tmp_path)
     auditor = RecordingAuditor()
-    service = MetadataService(settings_for(tree), auditor=auditor)
+    service = MetadataService(settings_for(tree), auditor=auditor, refresh_settle_s=0)
     service.load_initial()
     builds: list[int] = []
     real_build = service._build
@@ -63,7 +63,7 @@ async def test_invalid_change_keeps_last_known_good_and_is_not_rechecked(tmp_pat
     result = await refresher.run_once()
     assert result is not None and result.outcome == "REJECTED"
     assert service.snapshot() is good
-    assert (await service.readiness()).status == "degraded"
+    assert service.state == "DEGRADED"
     assert service.health().rejected_candidate is not None
 
     for _ in range(3):  # unchanged broken tree: no re-validation, no repeated audit rows
@@ -74,7 +74,7 @@ async def test_invalid_change_keeps_last_known_good_and_is_not_rechecked(tmp_pat
     # Restoring the original bytes makes the disk match the active tree again.
     assert await refresher.run_once() is None
     assert service.health().rejected_candidate is None
-    assert (await service.readiness()).status == "ok"
+    assert service.state == "LOADED"
     assert auditor.calls == [("REJECTED", SYSTEM_SUBJECT)]
 
 
@@ -135,3 +135,33 @@ async def test_start_and_stop_manage_the_background_task(tmp_path: Path) -> None
     assert refresher.running
     await refresher.stop()
     assert not refresher.running
+
+
+async def test_reapplying_a_previously_rejected_tree_is_rejected_again(tmp_path: Path) -> None:
+    tree, service, auditor, _ = setup(tmp_path)
+    refresher = MetadataRefresher(service, 30)
+    original = (tree / KNOWN_ISSUE).read_bytes()
+    edit_doc(tree, KNOWN_ISSUE, lambda d: d.update(pipeline_ids=["missing"]))
+    broken = (tree / KNOWN_ISSUE).read_bytes()
+
+    assert (await refresher.run_once()).outcome == "REJECTED"  # type: ignore[union-attr]
+    (tree / KNOWN_ISSUE).write_bytes(original)
+    assert await refresher.run_once() is None  # restored: state back to LOADED
+    (tree / KNOWN_ISSUE).write_bytes(broken)
+    result = await refresher.run_once()
+    assert result is not None and result.outcome == "REJECTED"
+    assert service.state == "DEGRADED"
+    assert auditor.calls == [("REJECTED", SYSTEM_SUBJECT), ("REJECTED", SYSTEM_SUBJECT)]
+
+
+async def test_a_tree_still_being_written_is_not_reloaded(tmp_path: Path) -> None:
+    _, service, _, builds = setup(tmp_path)
+    service._refresh_settle_s = 0.01
+    versions = iter(["changing-1", "changing-2"])
+
+    async def moving_version() -> str:
+        return next(versions)
+
+    service._disk_version = moving_version  # type: ignore[method-assign]
+    assert await service.refresh_if_changed() is None
+    assert builds == []  # never validated a half-written tree

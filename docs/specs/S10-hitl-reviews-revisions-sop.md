@@ -84,6 +84,7 @@ Revert code. The tables are additive. Pending reviews remain readable.
 - From S03 review: a W2 ACCEPT's `validated_payload` must be byte-identical (canonical) to the submitted human edit, so the model cannot silently rewrite it. Add `RejectRequest{reason}`, `RevisionSubmitRequest{base_revision, payload}` and a revision `source` enum as additive contracts.
 - From S03: `SOPReference.content_sha256` exists. Fill it from `approved_sops.sha256` or the YAML content hash when a review is created.
 - From S04 (decision 2026-10-01): the job worker process runs `backend.metadata.refresher.MetadataRefresher` so its metadata snapshot follows reloads within `METADATA_REFRESH_INTERVAL_S`.
+- From S04 (ADR-016): hash `approved_sops` with `backend.domain.hashing.sop_content_sha256` so YAML and DB SOPs share one pin. Have `SOPResolver` supply `MetadataContextBuilder(sop_source=...)`. Reserve a distinct ID namespace for DB SOPs. Persist `metadata_version` on reviews, outside the approval hash.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

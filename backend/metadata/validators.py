@@ -19,11 +19,14 @@ from pydantic import ValidationError
 
 from backend.domain.dq import Checkpoint
 from backend.metadata.loader import (
+    OVERSIZED,
+    UNREADABLE,
     MetadataParseError,
+    content_hash,
     discover,
-    file_sha256,
+    file_version_hash,
     parse,
-    read_bytes,
+    read_capped,
     tree_version,
 )
 from backend.metadata.models import (
@@ -87,10 +90,7 @@ def current_version(root: Path, max_bytes: int) -> str:
     discovery = discover(root)
     hashes: dict[str, str] = {}
     for source in discovery.files:
-        try:
-            hashes[source.relative] = file_sha256(source, max_bytes)
-        except OSError:
-            hashes[source.relative] = "unreadable"
+        hashes[source.relative] = file_version_hash(source, max_bytes)
     for issue in discovery.issues:
         if issue.code == "PATH_ESCAPE" and issue.file:
             hashes[issue.file] = "escape"
@@ -215,14 +215,25 @@ def _load_documents(
     for source in discovery.files:
         relative = source.relative
         try:
-            hashes[relative] = file_sha256(source, max_bytes)
-            data = parse(source, read_bytes(source, max_bytes))
+            raw = read_capped(source, max_bytes)
         except MetadataParseError as exc:
+            hashes[relative] = OVERSIZED
             report.error(exc.code, exc.message, file=relative)
             continue
         except OSError:
-            hashes[relative] = "unreadable"
+            hashes[relative] = UNREADABLE
             report.error("YAML_INVALID", "file cannot be read", file=relative)
+            continue
+        hashes[relative] = content_hash(raw)
+        try:
+            data = parse(source, raw)
+        except MetadataParseError as exc:
+            report.error(exc.code, exc.message, file=relative)
+            continue
+        except Exception as exc:  # safety net: a hostile file must never crash a load
+            report.error(
+                "YAML_INVALID", f"file cannot be parsed ({type(exc).__name__})", file=relative
+            )
             continue
 
         model_type, id_field = MODELS[source.document_type]

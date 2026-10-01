@@ -59,11 +59,15 @@ async def metadata_health(service: Service, _: Viewer) -> MetadataHealth:
 async def reload_metadata(service: Service, actor: Admin) -> ReloadResult:
     result = await service.reload(actor.subject, actor.role.value)
     if result.outcome == "REJECTED":
+        kept = (
+            "the previous metadata is still active."
+            if result.previous_version is not None
+            else "no metadata is loaded until the errors are fixed."
+        )
         raise ApiError(
             422,
             "METADATA_INVALID",
-            f"Metadata reload rejected with {len(result.errors)} error(s); "
-            "the previous metadata is still active.",
+            f"Metadata reload rejected with {len(result.errors)} error(s); {kept}",
             details={
                 "active_version": result.previous_version,
                 "candidate_version": result.version,
@@ -98,17 +102,8 @@ async def list_sops(
 ) -> ItemList[SOPMetadata]:
     snap = service.snapshot()
     _require_pipeline(snap, pipeline_id)
-    candidates = (
-        snap.all_sops()
-        if pipeline_id is None
-        else snap.sops(pipeline_id, category, approved_only=False)
-    )
-    items = [
-        s
-        for s in candidates
-        if (category is None or s.category == category) and (status is None or s.status == status)
-    ]
-    return ItemList(version=snap.version, items=items)
+    items = snap.list_sops(pipeline_id=pipeline_id, category=category, status=status)
+    return ItemList(version=snap.version, items=list(items))
 
 
 @router.get("/known-issues", response_model=ItemList[KnownIssue])
@@ -117,11 +112,12 @@ async def list_known_issues(
 ) -> ItemList[KnownIssue]:
     snap = service.snapshot()
     _require_pipeline(snap, pipeline_id)
-    items = snap.all_known_issues() if pipeline_id is None else snap.known_issues(pipeline_id)
-    return ItemList(
-        version=snap.version,
-        items=[k for k in items if category is None or k.category == category],
+    items = (
+        snap.all_known_issues(category)
+        if pipeline_id is None
+        else snap.known_issues(pipeline_id, category)
     )
+    return ItemList(version=snap.version, items=list(items))
 
 
 @router.get("/business-rules", response_model=ItemList[BusinessRuleSet])
@@ -140,11 +136,10 @@ async def list_runbooks(
 ) -> ItemList[Runbook]:
     snap = service.snapshot()
     _require_pipeline(snap, pipeline_id)
-    items = snap.all_runbooks() if pipeline_id is None else snap.runbooks(pipeline_id)
-    return ItemList(
-        version=snap.version,
-        items=[r for r in items if category is None or category in r.categories],
+    items = (
+        snap.all_runbooks(category) if pipeline_id is None else snap.runbooks(pipeline_id, category)
     )
+    return ItemList(version=snap.version, items=list(items))
 
 
 @router.get("/ownership", response_model=ItemList[Ownership])

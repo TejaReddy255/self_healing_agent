@@ -64,6 +64,7 @@ Revert code. The table is additive. Remove the callback from DAGs.
 
 ## Open issues
 - From S03 review: reject a caller-supplied `event_id` at ingest (or use an inbound model without it). `MonitoringEvent.metric` exists for checks without a `rule_id` (fingerprint input, src §24.2). DQ `expected`/`actual` dicts are written as `canonical_json` strings in the event, with the structured copy in `evidence`.
+- From S04 review: while `MetadataService.state == "EMPTY"`, ingest returns 503 (retryable), not 422, so Airflow callbacks are not lost. `get_pipeline_by_dag_id` also returns INACTIVE pipelines, so filter on `status`. Persist the metadata `version` on each event.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

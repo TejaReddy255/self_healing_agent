@@ -29,7 +29,7 @@ from backend.metadata.settings import MetadataSettings, load_metadata_settings
 from backend.observability.context import REQUEST_ID_HEADER
 from backend.observability.logging import configure_logging
 from backend.observability.middleware import RequestContextMiddleware
-from backend.observability.readiness import ReadinessRegistry
+from backend.observability.readiness import ComponentStatus, ReadinessRegistry
 from backend.security.auth import TokenRegistry
 from backend.services.activity_service import ActivityBroadcaster, ActivityService
 from backend.services.audit_service import AuditService
@@ -82,7 +82,20 @@ def create_app(
         metadata_settings, auditor=make_reload_auditor(audit_service)
     )
     metadata_service.load_initial()
-    readiness.register("metadata", metadata_service.readiness)
+
+    async def metadata_readiness() -> ComponentStatus:
+        health = metadata_service.health()
+        if health.state == "EMPTY":
+            return ComponentStatus(status="down", detail=f"{len(health.errors)} errors")
+        if health.rejected_candidate is not None:
+            rejected = health.rejected_candidate
+            return ComponentStatus(
+                status="degraded",
+                detail=f"candidate {rejected.version[:12]} rejected: {len(rejected.errors)} errors",
+            )
+        return ComponentStatus(status="ok")
+
+    readiness.register("metadata", metadata_readiness)
     metadata_refresher = MetadataRefresher(
         metadata_service, metadata_settings.metadata_refresh_interval_s
     )

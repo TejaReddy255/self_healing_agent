@@ -55,6 +55,7 @@ Remove the schedule entries from `dq_profile` and reload metadata. Revert code.
 
 ## Open issues
 - From S04 refinement: `dq_profile` entries need a `trigger` field (`on_profile_change`, `on_warning`). Add it here as an additive optional field on the S03 `DQProfileEntry` (not part of the approval hash) and update the contract snapshot. Until then, S04 metadata validation rejects a `trigger` key as `SCHEMA_INVALID`.
+- From S04 review: validate `dq_profile` entry `schedule` strings (e.g. `daily@02:00`, `every 6h`) in the metadata validator, so bad schedules fail at load time, not at runtime.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
