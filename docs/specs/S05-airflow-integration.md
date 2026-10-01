@@ -1,7 +1,7 @@
 ---
 id: S05
 title: Airflow client, live context provider, operator APIs (META-09)
-status: IN_REVIEW
+status: DONE
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, security-reviewer]
@@ -309,3 +309,4 @@ Revert the code. No data is written apart from audit rows.
   - Status READY.
 - 2026-10-01 — approved by product owner ("approve S05 and implement it"). Status IN_PROGRESS.
 - 2026-10-01 — implemented. Reviews by code-reviewer and security-reviewer were addressed. Product owner chose the rolling log tail with a ceiling (AC3 amended). AC10 strengthened. Status IN_REVIEW.
+- 2026-10-01 — accepted by product owner. Status DONE; merged to `main`. Runtime verification against real Airflow remains open for S22.
