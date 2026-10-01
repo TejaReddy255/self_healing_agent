@@ -74,6 +74,7 @@ Stop the worker. Revert code. The table is additive.
 - From S04 (decision 2026-10-01): the monitoring worker process runs `backend.metadata.refresher.MetadataRefresher` so monitor selection follows metadata reloads within `METADATA_REFRESH_INTERVAL_S` (S14-AC6 relies on this).
 - From S04 review: when metadata is EMPTY, skip the cycle and record a `metadata` monitor status rather than silently monitoring zero pipelines. `SCHEDULE_MISSED` takes the DAG schedule from live Airflow details via S05 (invariant 1), not from metadata. The worker builds `MetadataService` inside its running event loop and publishes its metadata version and state for skew visibility.
 - From S05 refinement: `AirflowDag` exposes `next_dagrun`, the data-interval bounds and `schedule_interval`/`timetable_description` for `SCHEDULE_MISSED`. `AirflowDagRun.logical_date` drives `SLA_MISSED`. Use the S05 `AirflowClient` Protocol and `FakeAirflow`.
+- From S05 review: monitors should take the read-only `AirflowReader` Protocol. Give each monitor cycle an overall time budget, because an Airflow GET can take `retries × (timeout + Retry-After ≤ 30 s)`. Consider a circuit breaker so a slow Airflow does not tie up the worker.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

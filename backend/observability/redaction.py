@@ -9,40 +9,87 @@ from typing import Any
 REDACTED = "***REDACTED***"
 
 SENSITIVE_KEY = re.compile(
-    r"password|passwd|secret|token|api[_-]?key|authorization|credential|dsn"
-    r"|connection[_-]?string|cookie|session",
+    r"password|passwd|passphrase|secret|token|api[_-]?key|private[_-]?key|fernet[_-]?key"
+    r"|authorization|credential|dsn|connection[_-]?string|cookie|session",
     re.IGNORECASE,
 )
 
+# "secret" also covers aws_secret_access_key, client_secret and secret_key.
 _INLINE_KEYWORDS = (
-    r"password|passwd|secret|token|api[_-]?key|authorization|credentials?|dsn"
-    r"|connection[_-]?string|cookie"
+    r"password|passwd|passphrase|secret|token|api[_-]?key|private[_-]?key|fernet[_-]?key"
+    r"|authorization|credentials?|dsn|connection[_-]?string|cookie"
 )
 
-# Order matters: auth schemes are masked before the generic key=value rule sees "Authorization:".
-_INLINE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # Credentials embedded in URLs: scheme://user:password@host. The password is matched greedily
-    # up to the last "@" of the token, so passwords containing "@" or "/" are fully masked.
-    (re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://[^:/\s@]+):\S*@"), rf"\1:{REDACTED}@"),
-    # HTTP auth schemes
-    (re.compile(r"\b(Bearer)\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE), rf"\1 {REDACTED}"),
-    (re.compile(r"\b(Basic)\s+[A-Za-z0-9+/=]{8,}", re.IGNORECASE), rf"\1 {REDACTED}"),
-    # key=value / key: value pairs in free text, including prefixed keys (PG_PASSWORD,
-    # access_token) and quoted dict/JSON keys ("token": "x").
+# Every repetition below is bounded or possessive and every pattern only starts at a token boundary,
+# so redaction stays linear even on a single multi-megabyte line (hex dumps in task logs). Patterns
+# whose marker substring is absent are skipped entirely.
+_KEYWORD = re.compile(rf"(?i)(?:{_INLINE_KEYWORDS})")
+
+# (marker that must appear in the lower-cased text, pattern, replacement)
+_INLINE_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    # PEM private key blocks
     (
+        "private key-----",
         re.compile(
-            rf"(?i)([\"']?[A-Za-z0-9_.-]*(?:{_INLINE_KEYWORDS})[\"']?)"
-            r"(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;&}\]]+)"
+            r"-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----.{0,20000}?"
+            r"-----END [A-Z ]{0,40}PRIVATE KEY-----",
+            re.DOTALL,
         ),
-        rf"\1\2{REDACTED}",
+        REDACTED,
+    ),
+    # Credentials embedded in URLs: scheme://user:password@host (user may be empty). The password
+    # is matched greedily up to the last "@" of the token, so passwords containing "@" or "/" are
+    # fully masked.
+    (
+        "://",
+        re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]{0,31}+://[^:/\s@]{0,256}+):\S{0,1024}@"),
+        rf"\1:{REDACTED}@",
+    ),
+    # AWS access key IDs and JSON Web Tokens appear bare in logs.
+    ("a", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), REDACTED),
+    (
+        "eyj",
+        re.compile(
+            r"\beyJ[A-Za-z0-9_-]{4,4096}+\.eyJ[A-Za-z0-9_-]{4,8192}+\.[A-Za-z0-9_-]{0,2048}+"
+        ),
+        REDACTED,
+    ),
+    # HTTP auth schemes (masked before the key=value rule sees "Authorization:")
+    (
+        "bearer",
+        re.compile(r"\b(Bearer)\s{1,8}[A-Za-z0-9._~+/=-]{1,8192}+", re.IGNORECASE),
+        rf"\1 {REDACTED}",
+    ),
+    (
+        "basic",
+        re.compile(r"\b(Basic)\s{1,8}[A-Za-z0-9+/=]{8,8192}+", re.IGNORECASE),
+        rf"\1 {REDACTED}",
     ),
 )
+
+# key=value / key: value pairs, including prefixed and suffixed keys (PG_PASSWORD, access_token,
+# aws_secret_access_key) and quoted dict/JSON keys ("token": "x"). The key is one whole token, so
+# matching starts only where a token starts; a callback decides whether it names a secret.
+_KEY_VALUE = re.compile(
+    r"(?<![A-Za-z0-9_.-])([\"']?)([A-Za-z0-9_.-]{1,128}+)([\"']?)(\s{0,8}[=:]\s{0,8})"
+    r"(\"[^\"]{0,4096}\"|'[^']{0,4096}'|[^\s,;&}\]]{1,4096}+)"
+)
+
+
+def _mask_key_value(match: re.Match[str]) -> str:
+    if not _KEYWORD.search(match.group(2)):
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)}{match.group(3)}{match.group(4)}{REDACTED}"
 
 
 def redact_text(text: str) -> str:
     """Mask inline credential patterns in free text."""
-    for pattern, replacement in _INLINE_PATTERNS:
-        text = pattern.sub(replacement, text)
+    lowered = text.lower()
+    for marker, pattern, replacement in _INLINE_PATTERNS:
+        if marker in lowered:
+            text = pattern.sub(replacement, text)
+    if _KEYWORD.search(text):
+        text = _KEY_VALUE.sub(_mask_key_value, text)
     return text
 
 

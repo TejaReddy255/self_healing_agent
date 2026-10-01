@@ -37,7 +37,7 @@ riskiest safety boundary (execution, S11) lands in Phase 2 so it gets the longes
 | [S02](specs/S02-persistence-foundation.md) | Persistence foundation, migrations, audit and activity | 0 | data-engineer | S01 | schema | DONE |
 | [S03](specs/S03-domain-contracts.md) | Shared domain contracts and canonical hashing | 0 | backend-engineer | S01 | contract, security-sensitive | DONE |
 | [S04](specs/S04-static-metadata-layer.md) | Static Metadata Layer (META-01..04) | 1 | backend-engineer | S03 | contract | DONE |
-| [S05](specs/S05-airflow-integration.md) | Airflow client, context provider, operator APIs (META-09) | 1 | backend-engineer | S03, S04 | security-sensitive | READY |
+| [S05](specs/S05-airflow-integration.md) | Airflow client, context provider, operator APIs (META-09) | 1 | backend-engineer | S03, S04 | security-sensitive | DONE |
 | [S06](specs/S06-mcp-manager-permissions.md) | MCP manager and tool-permission registry | 1 | backend-engineer | S02, S03 | security-sensitive | DRAFT |
 | [S07](specs/S07-mcp-servers-postgres-mysql.md) | PostgreSQL and MySQL MCP servers | 1 | backend-engineer | S06 | security-sensitive | DRAFT |
 | [S08](specs/S08-llm-agent-runtime.md) | LLM and agent runtime foundation | 2 | ai-engineer | S02, S03, S06 | ai, security-sensitive | DRAFT |

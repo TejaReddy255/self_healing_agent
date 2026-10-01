@@ -66,7 +66,7 @@ service only through adapters. No imports cross in either direction. The DQ serv
 
 ## Commands
 
-Available now (S01–S04):
+Available now (S01–S05):
 
 ```text
 uv sync                                                    # install (uv.lock is committed)
