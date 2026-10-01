@@ -1,0 +1,23 @@
+sop_id: SOP-PG-002
+title: PostgreSQL Duplicate Row Removal After Replay
+status: APPROVED
+version: "1"
+target_system: postgresql
+category: DUPLICATE_DATA
+risk_level: HIGH
+required_evidence:
+  - duplicate key count in the target table
+  - source row count and source duplicate check
+  - target row count
+remediation_steps:
+  - verify the exact duplicate count matches the evidence
+  - delete duplicate rows keeping the earliest load per business key
+verification_steps:
+  - duplicate count for the business key is 0
+  - target row count equals the source row count
+  - rerun the relevant DQ checks
+stop_conditions:
+  - the source also contains duplicates
+  - the duplicate count differs from the evidence
+human_approval_required: true
+tags: [duplicates]

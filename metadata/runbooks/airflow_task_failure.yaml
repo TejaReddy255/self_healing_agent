@@ -1,0 +1,13 @@
+runbook_id: RB-AIRFLOW-TASK-FAILURE
+title: Investigate a failed Airflow task
+status: ACTIVE
+pipeline_ids: [customer_daily_load]
+systems: []
+categories: [AIRFLOW_FAILURE]
+steps:
+  - read the DAG run state and the failed or upstream_failed task instances
+  - read the failed task log tail for the latest try
+  - compare the failure time with upstream task and source availability
+  - check whether a retry is already running before recommending any action
+related_sops: []
+tags: [airflow]

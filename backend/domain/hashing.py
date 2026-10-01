@@ -30,6 +30,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from backend.domain.review import ApprovalPayload
+from backend.domain.sop import SOPProposal
 
 
 class CanonicalizationError(ValueError):
@@ -92,3 +93,27 @@ def canonical_json(obj: Any) -> bytes:
 def payload_hash(payload: ApprovalPayload) -> str:
     """Lower-case hex SHA-256 of the canonical approval payload."""
     return hashlib.sha256(canonical_json(payload)).hexdigest()
+
+
+# Fields that define what a SOP makes an operator or agent do (ADR-016). Catalogue fields
+# (status, version, tags, pipeline_ids) are excluded: editing them must not invalidate approvals,
+# and deprecation is checked explicitly at PRECHECK instead.
+SOP_HASH_FIELDS = (
+    "title",
+    "category",
+    "target_system",
+    "risk_level",
+    "required_evidence",
+    "remediation_steps",
+    "verification_steps",
+    "stop_conditions",
+)
+SOP_HASH_VERSION = 1
+
+
+def sop_content_sha256(sop_id: str, sop: SOPProposal) -> str:
+    """The pin stored in ``SOPReference.content_sha256``, identical for a static YAML SOP and a
+    runtime-approved SOP (S10) with the same behavioural content."""
+    content = sop.model_dump(mode="json", include=set(SOP_HASH_FIELDS))
+    document = {"sop_hash_version": SOP_HASH_VERSION, "sop_id": sop_id, **content}
+    return hashlib.sha256(canonical_json(document)).hexdigest()

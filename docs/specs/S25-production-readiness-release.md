@@ -50,6 +50,9 @@ Package, deploy, operate and release the platform with evidence. Uses the `produ
 ## Rollback
 The release checklist defines the rollback trigger and procedure (previous image tags; migrations are additive, so the previous code runs on the new schema — verified in S25-AC1 staging).
 
+## Open issues
+- From S04 review: document the metadata deployment model. Use an atomic directory flip (symlink swap) for a shared volume, or bake metadata into the image with `METADATA_REFRESH_INTERVAL_S=0` for immutable deploys. The refresher's settle check only reduces the risk of half-written trees.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

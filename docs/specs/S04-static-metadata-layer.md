@@ -1,7 +1,7 @@
 ---
 id: S04
 title: Static Metadata Layer (META-01..04)
-status: READY
+status: DONE
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, solution-architect]
@@ -10,8 +10,8 @@ blocked_by: []
 traces: [FR-001, FR-002, FR-003, FR-004, FR-005, UC-AC8, NFR-002, NFR-006]
 source_sections: ["src §33.1–§33.7", "src §33.13", "src §33.14", "src §35.2"]
 tags: [contract]
-approved_by:
-approved_on:
+approved_by: product owner
+approved_on: 2026-10-01
 ---
 
 # S04 — Static Metadata Layer
@@ -148,6 +148,20 @@ Every reload attempt writes an `operation_audit` row via S02 `AuditService`:
 - **Details:** `previous_version`, `version`, `error_count`, `warning_count`.
 - **No database:** when no DB is configured (dev only), the reload proceeds and logs a WARNING `audit unavailable`.
 
+## Contract decisions (made during implementation and review)
+- **SOP hash (ADR-016, product owner 2026-10-01):** `hashing.sop_content_sha256` hashes `{sop_hash_version: 1, sop_id}` plus the eight behavioural fields. `content_sha256` is derived on every load: it is accepted and ignored on input, so dumps round-trip.
+- **`METADATA_DIR` default** is the absolute `<repo>/metadata`, not the relative `metadata` the spec text implied, so workers find it from any working directory (the same pattern as `MIGRATIONS_DIR`).
+- **Rejected reload body:** the 422 `details` carries `active_version` and `candidate_version` in addition to `errors` and `warnings`. When nothing is loaded (EMPTY), the message says so instead of claiming last-known-good.
+- **Hardened parsing:** files are read once with the size cap, then hashed and parsed from those same bytes, so a version always describes what was parsed. Nesting is limited to 64 levels (YAML and JSON). Unhashable or mapping keys are rejected. Any unexpected parser exception becomes `YAML_INVALID` for that file instead of crashing startup, reload or refresh. Hidden entries (e.g. `.git/`) are ignored.
+- **Refresh races:** refresh runs under the reload lock, and state changes cannot interleave with an admin reload. Restoring the active tree clears the remembered rejection.
+- **Read-only results:** `get_document` and `search` return deep copies of envelopes. Typed models are shared and documented as read-only.
+- **Applicability:** one rule for SOPs and runbooks. A document applies when it lists the pipeline, or lists none and targets one of the pipeline's systems. `search` filters envelope fields literally.
+- **Seams:**
+  - `MetadataReader` Protocol for consumers and fakes (ADR-012).
+  - `MetadataContextBuilder(service, sop_source=None)`, so S10's `SOPResolver` can add `approved_sops`.
+  - The readiness mapping (ok/degraded/down) lives in `backend/app.py`, so the service stays free of observability types.
+- **Test fixtures:** fixture trees are built per test by copying the committed seed and editing it (`tests/fakes/metadata_trees.py`), instead of static trees under `tests/fixtures/metadata/`. Each test shows the one change it makes.
+
 ## Out of scope
 - Jira/Confluence connector implementations, and pipeline write APIs (ADR-007).
 - `/pipelines/{id}/context` (S05) and runtime context sections (S09/S16).
@@ -182,7 +196,13 @@ None. Reload audit rows use the existing `operation_audit` (S02).
 - **S04-AC3** Reload with an invalid candidate leaves the active snapshot, version and all query results unchanged and returns 422 `METADATA_INVALID` with the errors. A valid reload swaps atomically: readers running throughout many reloads always see one consistent snapshot (every result's `version` matches its content), never a mix. Concurrent reload calls are serialised. Reloading an unchanged tree returns `UNCHANGED`.
 - **S04-AC4** A forbidden runtime key at any depth (top level, nested mapping, inside a list) yields `FORBIDDEN_RUNTIME_KEY` and the document is rejected.
 - **S04-AC5** Queries are deterministic: identical queries return identical results ordered by ID, independent of file discovery order. `MetadataQuery` filters combine with AND, and list fields match any value. `get_sops` applies the applicability rule and returns APPROVED SOPs only.
-- **S04-AC6** No module outside `backend/metadata` reads files under `METADATA_DIR`. A boundary test fails on `open`/`Path.read_*`/`yaml.*load` calls or `metadata_dir` references outside `backend/metadata` (settings wiring in `backend/app.py` is allowed).
+- **S04-AC6** No module outside `backend/metadata` reads files under `METADATA_DIR`. An AST boundary test over `backend`, `frontend`, `tools` (and `dq_agents`, `dq_service`, `mcp_servers`, `integrations` once they exist) fails on:
+  - `yaml.*load` calls or `from yaml import`;
+  - references to `metadata_dir`, `METADATA_DIR`, `DEFAULT_METADATA_DIR` or `resolved_dir`;
+  - path literals into the tree (`metadata/…`, docstrings excluded);
+  - `open`/`read_text`/`read_bytes` calls on an expression mentioning metadata.
+
+  *(Wording made precise during review: a generic ban on `open`/`read_*` would also flag legitimate reads such as the API token file and migration SQL.)*
 - **S04-AC7** `source_type` accepts STATIC, JIRA and CONFLUENCE. Only `StaticMetadataConnector` exists, it satisfies the `MetadataConnector` Protocol, and `pyproject.toml`/`uv.lock` contain no Jira, Confluence or Atlassian packages.
 - **S04-AC8** `POST /metadata/reload` returns 403 for viewer, operator, reviewer and service roles. Every reload attempt (RELOADED, UNCHANGED, REJECTED) writes exactly one `operation_audit` row with actor subject/role, outcome and versions.
 - **S04-AC9** Unsafe input is rejected without code execution or unbounded expansion: a `!!python/object` tag, an anchor/alias "billion laughs" document, a duplicate YAML key, a file over `METADATA_MAX_FILE_BYTES`, and a symlink resolving outside `METADATA_DIR`.
@@ -190,9 +210,18 @@ None. Reload audit rows use the existing `operation_audit` (S02).
   - `ok` when LOADED with no rejected candidate;
   - `degraded` (detail `candidate <version> rejected: N errors`) when a newer tree was rejected and last-known-good is still served;
   - `down` (detail `N errors`) when EMPTY.
-- **S04-AC11** *(new)* `SOPMetadata.content_sha256` equals `sha256(canonical_json(document))`. It is stable across loads and changes when any SOP field changes. `SOPReference(sop_id, version, content_sha256)` can be built from it.
+- **S04-AC11** *(new; amended 2026-10-01, product owner, ADR-016)* `SOPMetadata.content_sha256` equals `hashing.sop_content_sha256(sop_id, sop)`, which hashes the behavioural fields only. The hash:
+  - is stable across loads;
+  - is unchanged by catalogue edits (tags, `pipeline_ids`, version label, status);
+  - changes when any behavioural field changes;
+  - equals the hash of a `SOPProposal` with the same content, which is what S10 computes for `approved_sops`;
+  - is pinned by a golden vector.
+
+  `SOPReference(sop_id, version, content_sha256)` can be built from it.
 - **S04-AC12** *(new)* Pipeline semantics: source and target are declared datasets, and `datasets` entries add PII columns. `effective_permitted_systems()` defaults to the source and target systems. `human_approval_required: false` is rejected. Monitoring flags default as specified, and `get_pipeline_by_dag_id` resolves the seed DAG.
-- **S04-AC13** *(new, decision 2026-10-01)* Auto-refresh, tested with a fake clock and a temp tree:
+- **S04-AC13** *(new, decision 2026-10-01; strengthened in review)* Auto-refresh, tested with a fake clock and a temp tree:
+  - a changed tree is reloaded only once its version is stable across a short settle delay (default 1 s), so a half-written `git pull` is never validated;
+  - reapplying the exact bytes of a previously rejected tree after a restore is rejected and audited again;
   - a valid change on disk is swapped in within one interval;
   - an invalid change keeps last-known-good (readiness `degraded`, `rejected_candidate` populated) and is not re-validated on every tick while unchanged;
   - fixing the files swaps in and clears `rejected_candidate`;
@@ -208,6 +237,7 @@ None. Reload audit rows use the existing `operation_audit` (S02).
 | AC2, AC4, AC9 | unit | `tests/unit/metadata/test_validators.py` |
 | AC3 | unit | `tests/unit/metadata/test_reload_atomic.py` (reader tasks plus repeated reloads) |
 | AC13 | unit | `tests/unit/metadata/test_refresher.py` (fake clock, temp tree) |
+| AC11 golden vector | contract | `tests/contract/test_hashing.py::test_sop_content_hash_golden_vector` |
 | AC14 | unit (API) | `tests/unit/api/test_metadata_api.py` (invalid seed tree at startup) |
 | AC6 | unit | `tests/unit/test_import_boundaries.py` (metadata boundary) |
 | AC7 | contract | `tests/contract/test_metadata_models.py` |
@@ -231,6 +261,15 @@ Revert the code. The `metadata/` directory is additive.
 1. ~~Cross-process reload~~ **Decided 2026-10-01 (product owner): auto-refresh.** Every process runs `MetadataRefresher` (default 30 s). Workers adopt it when they are built (S10, S14), recorded in those specs.
 2. ~~Startup with invalid metadata~~ **Decided 2026-10-01 (product owner): start degraded** (empty snapshot, readiness `down`, fix and reload without restart).
 3. **Cross-slice, recorded for S18:** S18 needs `dq_profile` entries to carry `trigger` (`on_profile_change`, `on_warning`). That is an additive field on the S03 `DQProfileEntry` (not part of the approval hash), to be added in S18 with a schema snapshot update. Until then, a `trigger` key is a `SCHEMA_INVALID` error.
+5. **Cross-slice notes from the S04 reviews** (recorded in each spec):
+   - **S13:** while metadata is EMPTY, answer 503 (retryable) rather than 4xx, so Airflow callbacks are not lost. Filter `status: INACTIVE` pipelines. Record `metadata_version` on events.
+   - **S14:** skip a cycle with a `metadata` monitor status when EMPTY; never monitor zero pipelines silently. The schedule for `SCHEDULE_MISSED` comes from live Airflow DAG details (invariant 1). Workers publish their metadata version and state. The worker builds `MetadataService` inside its running loop.
+   - **S09, S10, S16:** persist `metadata_version` on analyses, reviews and incidents (not inside the approval hash). Build context from one `snapshot()` or `MetadataContextBuilder`. Copy before redacting.
+   - **S09:** the combined runtime context builder belongs in `backend/services/`, composing `MetadataContextBuilder` with the S05 client, so `backend/metadata` stays free of Airflow.
+   - **S10:** `SOPResolver` supplies `sop_source` and hashes `approved_sops` with `sop_content_sha256`. Reserve a distinct ID namespace for DB SOPs.
+   - **S11:** PRECHECK re-checks `effective_permitted_systems()` against the current snapshot (fail closed if narrowed) and checks that the pinned SOP is not DEPRECATED.
+   - **S18:** validate `dq_profile` `schedule` strings in the metadata validator.
+   - **S25:** document the metadata deployment model: an atomic directory flip for shared volumes, or baked into the image with `METADATA_REFRESH_INTERVAL_S=0`.
 4. **Cross-slice:** fields consumed later are defined here with defaults, so those slices need no model change:
    - `sla.*` and `monitoring.critical_runtime_factor` (S14);
    - `self_healing.auto_rca` (S16);
@@ -241,8 +280,43 @@ Revert the code. The `metadata/` directory is additive.
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|
+| Lint / format | `uv run ruff check .` / `uv run ruff format --check .` | pass | 111 files |
+| Types | `uv run mypy backend frontend tools` | pass | strict, 69 files |
+| Unit + contract | `uv run pytest -m "not integration and not e2e and not live"` | 467 passed, 1 skipped | Skip: the symlink-escape test needs Developer Mode on Windows. The same check is proven locally by the junction test and runs on Linux CI. |
+| Integration | `uv run pytest -m integration` | 42 passed | Reload audit rows (admin and refresher) in a migrated throwaway DB. S02 startup test updated to allow the new `metadata` readiness component. |
+| Traceability | `uv run python tools/trace.py --strict` | pass | S04-AC1..AC14 all covered |
+| Contract snapshot | `uv run python -m backend.domain.export_schemas --check` | pass | S03 v1 schemas unchanged (ADR-016 adds a function, not a schema change) |
+| Seed load | `build_candidate(metadata/)` | 0 errors, 0 warnings | Counts: pipeline 1, business_rule 1, sop 2, runbook 2, known_issue 1, ownership 1, historical_incident 1 |
+| Runtime | uvicorn on :8766 with a scratch copy of `metadata/`, dev DB | pass | `/metadata/health` LOADED. A broken known issue gave a 422 `METADATA_INVALID` (BROKEN_REFERENCE) with the active version retained, health DEGRADED and readiness `degraded`. Restoring it gave UNCHANGED and LOADED. The dev DB holds audit rows `REJECTED` and `UNCHANGED` with actor `rt-admin`/admin. |
+| Reviews | code-reviewer, solution-architect | findings addressed | See dispositions below |
+
+**Review dispositions.**
+- **Fixed:**
+  - Hostile files crashing startup and reload (code H1: unhashable keys, deep nesting, safety net).
+  - A previously rejected tree reappearing unnoticed, and the refresh race (code M2).
+  - Version describing different bytes from those parsed (code M3: read once).
+  - AC6 test weaker than the spec (code M4, wording made precise).
+  - Hidden directories (code L5).
+  - Shared mutable envelope content (code L6: copies).
+  - EMPTY 422 message (code L7).
+  - YAML 1.1 typing notes (code L8, README).
+  - Thread readers in AC3 (code L9).
+  - SOP hash domain (architect H1, ADR-016, AC11 amended).
+  - Half-written tree swapped in (architect M5, settle check).
+  - SOP source injection (architect M4).
+  - `details` keys recorded (architect L7).
+  - One applicability rule (architect L8).
+  - `content_sha256` round-trip (architect L9).
+  - Readiness mapping moved to the app (architect L10).
+  - `MetadataReader` Protocol (architect L11).
+  - Route filtering moved into the snapshot (architect L12).
+- **Handed downstream:** architect H2, M3, M4 (S09 placement), M5 (deployment model) and M6; code-review notes for S13, S14, S09, S16. See Open issue 5.
+- **Accepted as-is:** `DQProfileEntry.schedule` free text until S18 (architect L13). Merge keys reported as `UNSAFE_YAML` (code L8).
 
 ## Changelog
 - 2026-09-29 — created (DRAFT)
 - 2026-10-01 — refined via `/slice-spec`. Concrete content models, validation codes, API shapes, service contracts and audit added. AC1–AC9 sharpened (IDs kept). AC10–AC12 added (APIs/readiness, SOP content hash, pipeline semantics). YAML hardening (duplicate keys, anchors, path confinement) added. Status READY. Open issues 1–2 need product-owner answers.
 - 2026-10-01 — product owner decided open issues 1 (auto-refresh every 30 s across processes) and 2 (start degraded). Added `refresher.py`, `MetadataHealth.state`/`rejected_candidate`, `METADATA_REFRESH_INTERVAL_S`, readiness `degraded`, and AC13/AC14.
+- 2026-10-01 — approved by product owner ("approve S04 and implement it"). Status IN_PROGRESS.
+- 2026-10-01 — implemented. Reviews by code-reviewer and solution-architect were addressed. Product owner chose the behavioural SOP hash: AC11 amended and ADR-016 added. AC6 and AC13 sharpened. Status IN_REVIEW.
+- 2026-10-01 — accepted by product owner. Status DONE; merged to `main`.

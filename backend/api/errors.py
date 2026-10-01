@@ -1,9 +1,13 @@
-"""Uniform error envelope ``{error_code, message, request_id}`` for every API error (S01)."""
+"""Uniform error envelope ``{error_code, message, request_id}`` for every API error (S01).
+
+An optional ``details`` object carries structured context, e.g. a rejected metadata reload's
+validation report (S04). It is emitted only when set.
+"""
 
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import cast
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -22,12 +26,14 @@ class ApiError(Exception):
         error_code: str,
         message: str,
         headers: dict[str, str] | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.error_code = error_code
         self.message = message
         self.headers = headers
+        self.details = details
 
 
 def error_response(
@@ -35,16 +41,16 @@ def error_response(
     error_code: str,
     message: str,
     headers: dict[str, str] | None = None,
+    details: dict[str, Any] | None = None,
 ) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "error_code": error_code,
-            "message": message,
-            "request_id": current_request_id(),
-        },
-        headers=headers,
-    )
+    content: dict[str, Any] = {
+        "error_code": error_code,
+        "message": message,
+        "request_id": current_request_id(),
+    }
+    if details is not None:
+        content["details"] = details
+    return JSONResponse(status_code=status_code, content=content, headers=headers)
 
 
 def _status_error_code(status_code: int) -> str:
@@ -56,7 +62,7 @@ def _status_error_code(status_code: int) -> str:
 
 async def _api_error_handler(_: Request, exc: Exception) -> JSONResponse:
     err = cast(ApiError, exc)
-    return error_response(err.status_code, err.error_code, err.message, err.headers)
+    return error_response(err.status_code, err.error_code, err.message, err.headers, err.details)
 
 
 async def _http_exception_handler(_: Request, exc: Exception) -> JSONResponse:

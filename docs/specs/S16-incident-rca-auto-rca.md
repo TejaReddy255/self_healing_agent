@@ -61,6 +61,9 @@ Verification/resolution (S19/S20).
 ## Rollback
 Set `self_healing.auto_rca=false` in metadata (reload) to stop automatic RCA. Revert code.
 
+## Open issues
+- From S04 review: persist the metadata `version` used to build each incident's RCA context.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

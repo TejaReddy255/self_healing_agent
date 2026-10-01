@@ -408,6 +408,7 @@ One generic job pattern (ADR-004), implemented once in `backend/jobs/base.py` (S
 ## 19. Architecture Decision Records
 
 Format: **Decision · Context · Consequences · Status.** ADR-001 to ADR-015 were **Accepted** at G2 on 2026-09-30.
+ADR-016 was accepted on 2026-10-01 during S04 (product owner).
 ADR-014 was amended on 2026-09-30 (product owner decision): file contents live on a local Docker volume, not an
 object store.
 
@@ -499,6 +500,18 @@ down to PostgreSQL/MySQL, or executed in sandboxed DuckDB for files and S3 objec
 DuckDB after extraction to avoid dialect formatting drift. Statistical and ML algorithms (scipy, scikit-learn) run on
 seeded samples with the sampling recorded. *Rejected:* pandas-only full loads (memory-bound, not exact at scale);
 Spark (infrastructure overhead at v1 volumes, OQ-18).
+
+**ADR-016 SOP content hash covers behavioural fields only** *(accepted 2026-10-01, product owner, during S04)*.
+`SOPReference.content_sha256` pins the SOP an approval relied on. It is
+`backend.domain.hashing.sop_content_sha256(sop_id, sop)`, the SHA-256 of the canonical JSON of
+`{sop_hash_version: 1, sop_id, title, category, target_system, risk_level, required_evidence,
+remediation_steps, verification_steps, stop_conditions}`. *Context:* hashing the whole catalogue
+document made cosmetic edits (tags, `pipeline_ids`, version labels) invalidate approvals already in
+flight, and static YAML SOPs and runtime-approved SOPs (`approved_sops`, ADR-008) would have used
+different hash domains. *Consequences:* both SOP sources share one hash, and catalogue edits leave the pin
+unchanged. A SOP that becomes DEPRECATED is caught by an explicit status check at PRECHECK (S11), not by
+the hash. Changing the field list or the version marker needs a new ADR. *Rejected:* hashing the full YAML
+document; hashing only `remediation_steps`, which would miss changed stop conditions or scope.
 
 ## 20. Alternatives rejected
 

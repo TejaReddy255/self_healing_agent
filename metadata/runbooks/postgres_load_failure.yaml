@@ -1,0 +1,13 @@
+runbook_id: RB-PG-LOAD-FAILURE
+title: Investigate a PostgreSQL load failure
+status: ACTIVE
+pipeline_ids: [customer_daily_load]
+systems: [postgresql]
+categories: [DATA_QUALITY, DUPLICATE_DATA, MISSING_PARTITION]
+steps:
+  - compare source and target row counts for the load window
+  - check the target for duplicate business keys
+  - check that the target partition for the load date exists
+  - inspect the load or merge logic for idempotency on retry
+related_sops: [SOP-PG-001, SOP-PG-002]
+tags: [postgres]
