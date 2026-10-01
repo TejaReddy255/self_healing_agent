@@ -85,7 +85,7 @@ apply unchanged.
 | **G5 Phase exit** | Phase demo + evidence in `docs/implementation-plan.md` | `test-and-verify` | `qa-engineer`, `orchestrator` | Phase exit criteria in the plan pass on a clean checkout | ✔ per phase |
 | **G6 Release** | `docs/security-review.md`, `docs/production-readiness.md`, `docs/release-checklist.md` | `security-review`, `production-readiness`, `release` | `security-reviewer`, `release-manager`, `devops-sre` | No FAIL/NOT VERIFIED on blocking items; canonical E2E passes | ✔ |
 
-Current position: **G0–G3 approved (2026-09-30). Phase 0 (S01–S03) DONE, contract freeze v1 signed off (2026-10-01). P0 exit evidence recorded (CI pending a remote). Next: Phase 1, starting with S04.**
+Current position: **G0–G3 approved (2026-09-30). Phase 0 (S01–S03) DONE, contract freeze v1 signed off (2026-10-01). Phase 0 exit signed off (2026-10-01; first CI run is a follow-up once a remote exists). Next: Phase 1, starting with S04.**
 
 ---
 
