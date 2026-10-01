@@ -66,15 +66,16 @@ service only through adapters. No imports cross in either direction. The DQ serv
 
 ## Commands
 
-Available now (S01–S06):
+Available now (S01–S07):
 
 ```text
 uv sync                                                    # install (uv.lock is committed)
 uv run ruff check .                                        # lint
 uv run ruff format --check .                               # format check (Markdown excluded)
 uv run mypy backend frontend tools                         # strict type check
+uv run mypy mcp_servers                                    # strict type check, MCP servers (S07)
 uv run pytest -m "not integration and not e2e and not live"   # unit + contract tests
-uv run pytest -m integration                               # needs the dev Postgres container
+uv run pytest -m integration                               # needs the dev containers (S07: sales-db, warehouse-db)
 uv run python tools/trace.py --strict                      # spec AC ↔ test traceability
 uv run python tools/new_token.py <subject> <role>          # create an API token entry
 docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d   # Postgres on 127.0.0.1:55432
@@ -83,6 +84,9 @@ curl -X POST -H "Authorization: Bearer <admin token>" localhost:8000/metadata/re
 uv run python tools/mcp_pin.py <mcp-url> <server>          # pinned registry entries for a running MCP server
 uv run uvicorn backend.main:app --reload                   # API on :8000
 uv run streamlit run frontend/app.py                       # operator console on :8501
+docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d sales-db warehouse-db   # S07 data: MySQL 13306, PostgreSQL 55433
+uv run python deploy/seed/canonical.py --rows 100000 --duplicates 417   # canonical scenario (drops + recreates)
+uv run python -m mcp_servers.postgres                      # PostgreSQL MCP server on :8001 (mysql: :8002)
 ```
 
 In a freshly created `.venv`, Smart App Control can block uv's newly built `.exe` launchers (e.g. `mypy.exe`, os error 4551).

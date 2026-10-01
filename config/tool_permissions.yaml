@@ -2,9 +2,80 @@
 # is UNCLASSIFIED and unusable (default deny). Changes are reviewed commits plus a restart; an
 # invalid file stops startup.
 #
-# Entry: {server: postgresql|mysql|s3|mongodb, tool, access: read|write,
-#         timeout_s?, max_output_bytes?, input_schema_sha256?, notes?}
-# Pin input_schema_sha256 (see backend.mcp.permissions.schema_sha256) so a server cannot silently
-# change what a vetted tool accepts. S07 and S24 add the entries for their servers.
+# Entry: {server: postgresql|mysql|s3|mongodb, tool, access: read|write, definition_sha256,
+#         timeout_s?, max_output_bytes?, notes?}
+# definition_sha256 pins the tool's name, description, input schema and annotations
+# (backend.mcp.permissions.definition_sha256): any change on the server excludes the tool until the
+# pin is reviewed again. Generate candidates with `uv run python tools/mcp_pin.py <url> <server>`.
+# S07 added the postgresql and mysql entries; S24 adds s3 and mongodb.
 version: 1
-tools: []
+tools:
+  # --- postgresql (mcp_servers.postgres) ---
+  - server: postgresql
+    tool: describe_table
+    access: read
+    definition_sha256: 0a823639d1984fd91215de9b82c7986166e0341b8bf8ffaa52b513db665e0682
+  - server: postgresql
+    tool: execute_ddl
+    access: write
+    definition_sha256: 16cba14597d5c0c8493d77b3b281167922cef4aeba5d331a3ea5d8f6ceff2e79
+    notes: "write: allowlisted CREATE TABLE ... PARTITION OF / CREATE INDEX; S11 write guard required"
+  - server: postgresql
+    tool: execute_dml
+    access: write
+    definition_sha256: 49f57934d1d77e68b4fa333e15b4e157a37197d0f2441381dbed6b8674213967
+    notes: "write: one INSERT/UPDATE/DELETE, row ceiling with rollback; S11 write guard required"
+  - server: postgresql
+    tool: find_duplicates
+    access: read
+    definition_sha256: 36d1ea30a6c1d5bbee3d127d47df59a2a6b68fd98de69ba73f444614a1a714f6
+  - server: postgresql
+    tool: get_row_count
+    access: read
+    definition_sha256: f126b64c7acf66c42a9e50403648b878ea72ea78344c56d199531acb22198075
+  - server: postgresql
+    tool: list_partitions
+    access: read
+    definition_sha256: 9ada367f847c41a0aba671ea195653bde8a5c8bd0fc3906555c479a5bae3757c
+  - server: postgresql
+    tool: list_schemas
+    access: read
+    definition_sha256: 42a53408b7045c02440b3f2a172283a4f2bf35b730124977e39e3adf87194994
+  - server: postgresql
+    tool: list_tables
+    access: read
+    definition_sha256: 170cb1e04aa26aefa872ab771405fdec0a56185c3654f89273036bc9e652ad96
+  - server: postgresql
+    tool: run_select
+    access: read
+    definition_sha256: 064c93312c80582af1380fee317727db9e63926149211507f2720eca8efdd4af
+  # --- mysql (mcp_servers.mysql) ---
+  - server: mysql
+    tool: describe_table
+    access: read
+    definition_sha256: 0a823639d1984fd91215de9b82c7986166e0341b8bf8ffaa52b513db665e0682
+  - server: mysql
+    tool: execute_dml
+    access: write
+    definition_sha256: 49f57934d1d77e68b4fa333e15b4e157a37197d0f2441381dbed6b8674213967
+    notes: "write: one INSERT/UPDATE/DELETE, row ceiling with rollback; S11 write guard required"
+  - server: mysql
+    tool: find_duplicates
+    access: read
+    definition_sha256: 36d1ea30a6c1d5bbee3d127d47df59a2a6b68fd98de69ba73f444614a1a714f6
+  - server: mysql
+    tool: get_row_count
+    access: read
+    definition_sha256: f126b64c7acf66c42a9e50403648b878ea72ea78344c56d199531acb22198075
+  - server: mysql
+    tool: list_schemas
+    access: read
+    definition_sha256: 42a53408b7045c02440b3f2a172283a4f2bf35b730124977e39e3adf87194994
+  - server: mysql
+    tool: list_tables
+    access: read
+    definition_sha256: 170cb1e04aa26aefa872ab771405fdec0a56185c3654f89273036bc9e652ad96
+  - server: mysql
+    tool: run_select
+    access: read
+    definition_sha256: 064c93312c80582af1380fee317727db9e63926149211507f2720eca8efdd4af

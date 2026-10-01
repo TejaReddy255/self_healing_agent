@@ -21,5 +21,46 @@ services:
       timeout: 3s
       retries: 20
 
+  # S07: canonical-scenario data systems reached only through the MCP servers.
+  sales-db:  # source: MySQL sales.customer
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: sales
+      MCP_MYSQL_READER_PASSWORD: ${MCP_MYSQL_READER_PASSWORD:?set MCP_MYSQL_READER_PASSWORD in .env}
+      MCP_MYSQL_WRITER_PASSWORD: ${MCP_MYSQL_WRITER_PASSWORD:?set MCP_MYSQL_WRITER_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-13306}:3306"
+    volumes:
+      - sales-db-data:/var/lib/mysql
+      - ./init/sales:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  warehouse-db:  # target: PostgreSQL warehouse.dw.customer
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: warehouse_admin
+      POSTGRES_DB: warehouse
+      POSTGRES_PASSWORD: ${WAREHOUSE_PG_PASSWORD:?set WAREHOUSE_PG_PASSWORD in .env}
+      MCP_POSTGRES_READER_PASSWORD: ${MCP_POSTGRES_READER_PASSWORD:?set MCP_POSTGRES_READER_PASSWORD in .env}
+      MCP_POSTGRES_WRITER_PASSWORD: ${MCP_POSTGRES_WRITER_PASSWORD:?set MCP_POSTGRES_WRITER_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${WAREHOUSE_PG_PORT:-55433}:5432"
+    volumes:
+      - warehouse-db-data:/var/lib/postgresql/data
+      - ./init/warehouse:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Over TCP: during the init scripts PostgreSQL listens on the unix socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U warehouse_admin -d warehouse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   operational-db-data:
+  sales-db-data:
+  warehouse-db-data:

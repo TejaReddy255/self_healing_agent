@@ -17,6 +17,7 @@ from backend.mcp.settings import MCPSettings
 from backend.metadata.settings import MetadataSettings
 from backend.security.auth import hash_token
 from frontend.api_client import FrontendSettings
+from mcp_servers.common.settings import MySQLServerSettings, PostgresServerSettings
 
 # Plaintext test tokens per role; only their SHA-256 digests reach the app configuration.
 ROLE_TOKENS: dict[str, str] = {
@@ -98,6 +99,19 @@ _SETTINGS_ENV_VARS = (
     "MCP_REFRESH_INTERVAL_S",
     "MCP_READ_RETRIES",
     "TOOL_PERMISSIONS_FILE",
+    "MCP_BIND_HOST",
+    "MCP_ROW_LIMIT",
+    "MCP_STATEMENT_TIMEOUT_MS",
+    "MCP_MAX_AFFECTED_ROWS",
+    "MCP_PII_COLUMNS",
+    "MCP_POSTGRES_READER_DSN",
+    "MCP_POSTGRES_WRITER_DSN",
+    "MCP_POSTGRES_SCHEMAS",
+    "MCP_POSTGRES_PORT",
+    "MCP_MYSQL_READER_DSN",
+    "MCP_MYSQL_WRITER_DSN",
+    "MCP_MYSQL_SCHEMAS",
+    "MCP_MYSQL_PORT",
 )
 
 
@@ -116,6 +130,8 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
         AirflowSettings,
         MCPSettings,
         FrontendSettings,
+        PostgresServerSettings,
+        MySQLServerSettings,
     ):
         monkeypatch.setitem(settings_class.model_config, "env_file", None)
 

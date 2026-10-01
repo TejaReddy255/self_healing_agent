@@ -42,6 +42,8 @@ _CHILD_ENV_KEYS = frozenset(
         "PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
         "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "LANG", "LC_ALL",
         "PYTHONIOENCODING", "PYTHONUTF8", "VIRTUAL_ENV",
+        # Login name: getpass.getuser() (aiomysql calls it at import) has no Windows fallback.
+        "USERNAME", "USER", "LOGNAME",
     }
 )  # fmt: skip
 

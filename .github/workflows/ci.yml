@@ -29,6 +29,8 @@ jobs:
         run: uv run ruff format --check .
       - name: Type check
         run: uv run mypy backend frontend tools
+      - name: Type check (MCP servers, S07)
+        run: uv run mypy mcp_servers
       - name: Unit and contract tests
         run: uv run pytest -m "not integration and not e2e and not live"
       - name: Spec traceability
@@ -59,6 +61,20 @@ jobs:
       PG_PASSWORD: ci-ephemeral-only
       # Fail (not skip) if the database is unreachable.
       REQUIRE_INTEGRATION_DB: "1"
+      # S07 data containers (sales-db, warehouse-db). Throwaway values for ephemeral CI containers.
+      MYSQL_PORT: "13306"
+      WAREHOUSE_PG_PORT: "55433"
+      MYSQL_ROOT_PASSWORD: ci-ephemeral-mysql-root
+      WAREHOUSE_PG_PASSWORD: ci-ephemeral-warehouse
+      MCP_POSTGRES_READER_PASSWORD: ci-ephemeral-pg-reader
+      MCP_POSTGRES_WRITER_PASSWORD: ci-ephemeral-pg-writer
+      MCP_MYSQL_READER_PASSWORD: ci-ephemeral-my-reader
+      MCP_MYSQL_WRITER_PASSWORD: ci-ephemeral-my-writer
+      MCP_POSTGRES_READER_DSN: postgresql://mcp_reader:ci-ephemeral-pg-reader@127.0.0.1:55433/warehouse
+      MCP_POSTGRES_WRITER_DSN: postgresql://mcp_writer:ci-ephemeral-pg-writer@127.0.0.1:55433/warehouse
+      MCP_MYSQL_READER_DSN: mysql://mcp_reader:ci-ephemeral-my-reader@127.0.0.1:13306/sales
+      MCP_MYSQL_WRITER_DSN: mysql://mcp_writer:ci-ephemeral-my-writer@127.0.0.1:13306/sales
+      MCP_PII_COLUMNS: '["dw.customer.email","dw.customer.phone","sales.customer.email","sales.customer.phone"]'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -67,5 +83,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies (locked)
         run: uv sync --locked
+      - name: Start S07 data containers (init scripts create the MCP roles)
+        run: docker compose -f deploy/docker-compose.dev.yml up -d --wait sales-db warehouse-db
       - name: Integration tests
         run: uv run pytest -m integration
