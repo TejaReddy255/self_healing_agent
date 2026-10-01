@@ -44,6 +44,9 @@ Complete the four-system MCP coverage from src §8 with the same safety properti
 ## Rollback
 Stop the servers. Remove the registry entries.
 
+## Open issues
+- From S06 refinement: as for S07, add registry entries with `input_schema_sha256`, a `GET /health` endpoint and `mcp_servers.<name>` module entry points.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

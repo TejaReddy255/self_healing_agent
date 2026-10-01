@@ -70,6 +70,9 @@ Defence in depth: validation, DB role, row limits, rollback ceiling, registry, w
 ## Rollback
 Revert; stop the servers.
 
+## Open issues
+- From S06 refinement: add a `config/tool_permissions.yaml` entry for every tool, pinning `input_schema_sha256` (SHA-256 of the canonical JSON input schema). Servers must expose `GET /health` at the URL origin and run as `python -m mcp_servers.<name>`, so S06 autostart can launch them in dev.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|

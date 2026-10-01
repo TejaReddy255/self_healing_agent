@@ -76,6 +76,7 @@ Revert code.
 
 ## Open issues
 - From S05: wrap `backend.airflow.tools.AirflowReadTools`, which holds only the read-only `AirflowReader` Protocol. `get_task_logs` already redacts off the event loop and returns untrusted text, so wrap `TaskLog.content` in `untrusted()`. The tools reject DAGs outside their allowlist with `AirflowToolDenied`, which should be returned to the model as a tool error.
+- From S06 refinement: wrap `backend.mcp.ToolHandle` (named `"{server}.{tool}"`). Pass an `InvocationContext` with correlation IDs. The output is already capped at `MCP_MAX_OUTPUT_BYTES` and is untrusted text.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
