@@ -1,7 +1,7 @@
 ---
 id: S06
 title: MCP manager and explicit tool-permission registry
-status: IN_PROGRESS
+status: IN_REVIEW
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, security-reviewer]
@@ -37,9 +37,9 @@ approved_on: 2026-10-01
 | `MCP_<SYSTEM>_ENABLED` | `true` | A disabled server is not probed and contributes no tools. |
 | `MCP_<SYSTEM>_REQUIRED` | `false` | A required server being down makes readiness `down`. |
 | `MCP_<SYSTEM>_MODULE` | `mcp_servers.<system>` | The autostart target, launched as `python -m <module>`. It must match `^mcp_servers\.[a-z_]+$`: no arbitrary commands and no shell. |
-| `MCP_AUTOSTART` | `false` | Starts unreachable local servers. **Refused when `ENV=prod`** (`ConfigurationError`). |
+| `MCP_AUTOSTART` | `false` | Starts unreachable local servers whose URL host is a literal loopback address (`127.0.0.1`, `::1`). **Refused when `ENV=prod`** (`ConfigurationError`). In prod, every enabled server URL must also be https or loopback. |
 | `MCP_DEFAULT_TIMEOUT_S` | `60` | Per call. A registry entry may override it (≤ 600). |
-| `MCP_MAX_OUTPUT_BYTES` | `8192` | Cap on what is returned to the caller (NFR-006); a registry entry may lower it. |
+| `MCP_MAX_OUTPUT_BYTES` | `8192` | Cap on what is returned to the caller (NFR-006). It cannot be set higher than 8192, and a registry entry may lower it. |
 | `MCP_PROBE_TIMEOUT_S` | `3` | Health probe and connection timeout |
 | `MCP_REFRESH_INTERVAL_S` | `60` | Background health and tool refresh; `0` disables it. |
 | `MCP_READ_RETRIES` | `2` | Transport-error retries for READ tools only. **WRITE tools are never retried.** |
@@ -105,6 +105,38 @@ approved_on: 2026-10-01
 
   It reads the cached snapshot and never calls MCP inline.
 
+## Contract decisions (made during implementation and review)
+**Product owner decisions (2026-10-01)**
+- **AC3, the write tripwire:** the hybrid rule above. Read entries need `readOnlyHint=true`, which our own servers set (S07/S24, devecho).
+- **Pinning:** mandatory, full-definition pins. The registry field is `definition_sha256` (it replaces the optional `input_schema_sha256` in the spec text). `tools/mcp_pin.py <url> <server>` prints entries with pins and `access: REVIEW`, which the registry rejects until a human chooses read or write.
+
+**Implementation and review decisions**
+- **Errors say whether a call may have run:**
+  - `ToolUnavailable`: never sent; read tools retry.
+  - `ToolOutcomeUnknown`, including `ToolTimeout`: the call may have run. Read tools retry; timeouts and writes never retry.
+  - `ToolCallError`: the server answered with an error. Its `detail` is kept out of the message.
+  - `ToolNotPermitted`: refused locally.
+
+  `connector.map_failure` flattens anyio exception groups from mcp 2.x / httpx2, so no raw SDK exception escapes.
+- **Write audit is mandatory:**
+  - `execution_toolset(manager, audit, target)` requires an audit sink;
+  - a WRITE whose start row cannot be stored is refused before the server is contacted (`NOT_PERMITTED`);
+  - cancellation writes a shielded `CANCELLED` end row;
+  - for READ tools, audit stays best-effort.
+- **Handles cannot outlive their permission:**
+  - `ToolHandle` can only be built by `backend.mcp.toolsets` (private construction token);
+  - every `invoke` re-checks the live snapshot (class and definition hash);
+  - the AC9 boundary test also forbids direct `ToolHandle(...)` construction, the token or `_handles`, and `manager.connector` outside `backend/mcp` and remediation code.
+- **Manager:**
+  - discovery runs under a lock;
+  - advertised tool names are validated (duplicates and invalid names are ignored and counted in `ignored_tools`; at most 500 per server);
+  - `list_tools` follows pagination (at most 10 pages);
+  - autostart passes a **minimal environment** (OS basics plus `MCP_*` only: no API tokens, `PG_PASSWORD`, Airflow or LLM credentials), sets `cwd` to the repository root, logs to a temp file, backs off 5 minutes after a crash, and stops the whole process tree.
+- **App lifespan:** discovery runs inside the cleanup `try`, and each shutdown step runs even if an earlier one fails.
+- **Shared YAML parser:** the hardened parser moved to `backend/yaml_safe.py`, used by S04 metadata (behaviour unchanged) and by this registry. The S04 boundary test allows that one module.
+- **Dev server:** `mcp_servers/devecho` is a dependency-free dev MCP server, used as the autostart and real-SDK test target. It replaces `tests/fakes/mcp_server.py` from the spec text.
+- **Signatures:** toolsets take `(manager, audit)` rather than a snapshot. `ToolCallResult.raw_bytes` was dropped; `ToolOutput.original_bytes` carries the size.
+
 ## Out of scope
 - The MCP servers themselves (S07, S24) and their registry entries.
 - Agent tool wrapping and `TOOL_NOT_ALLOWED` (S08).
@@ -120,14 +152,20 @@ None. Audit rows use `operation_audit` (S02).
 ## Acceptance criteria
 - **S06-AC1** Tools from a fake server are discovered and classified per the registry. With the FastMCP test server, the real SDK path lists and calls a tool.
 - **S06-AC2** A tool absent from the registry is UNCLASSIFIED, is excluded from both toolsets, and is listed by name in `/mcp-status`.
-- **S06-AC3** A registry `read` entry whose name matches the write heuristic is MISMATCH: excluded from both toolsets, logged as a warning, and listed in `/mcp-status`. A pinned `input_schema_sha256` that differs from the discovered schema is SCHEMA_CHANGED and excluded.
+- **S06-AC3** *(amended 2026-10-01, product owner)*
+  - A registry `read` entry is MISMATCH (excluded from both toolsets, logged, listed in `/mcp-status`) when **any** read tripwire fires:
+    - a long write verb appears anywhere in the name (`execute`, `insert`, `update`, `upsert`, `delete`, `create`, `alter`, `upload`, `remove`, `truncate`, `merge`, `grant`, `revoke`, `write`, `replace`, `rename`, `reset`, `purge`, `destroy`, `modify`), so `bulkwrite`, `SQLExecute` and `softdelete` are caught;
+    - a short write word is a whole name token (`put`, `set`, `copy`, `drop`, `exec`, `move`, `patch`, `post`, `kill`), so `describe_dataset` passes;
+    - the server marks the tool `destructiveHint=true`;
+    - the server does **not** mark it `readOnlyHint=true`.
+  - Every registry entry pins `definition_sha256`, a hash of the full tool definition (name, description, input schema, annotations). A live definition that differs from the pin is SCHEMA_CHANGED and excluded.
 - **S06-AC4** `diagnostic_toolset()` never contains a WRITE, UNCLASSIFIED, MISMATCH or SCHEMA_CHANGED tool, or a tool from an unhealthy or disabled server. This is a property-based test (hypothesis) over generated registries, discovered tool lists and server health.
 - **S06-AC5** `execution_toolset("mysql")` contains only `mysql.*` tools. An invalid or disabled target raises `InvalidTarget`, an unhealthy one `TargetUnavailable`, and one with zero WRITE tools `NoWriteTools`.
 - **S06-AC6** With one server down, the others are still discovered and usable. Readiness `mcp` is `degraded`, or `down` only when the down server is `required`. Readiness reads the cached snapshot and makes no MCP call.
 - **S06-AC7** Autostart launches only `python -m mcp_servers.<name>` for loopback URLs. Started subprocesses terminate on shutdown, and processes not started by the manager are untouched. `MCP_AUTOSTART=true` with `ENV=prod` fails at startup.
 - **S06-AC8** Every invocation writes a start row before the call and an end row after it, with status, duration, correlation IDs, redacted arguments and truncated output. A timeout gives an audited `TIMEOUT`. A READ tool retries transport errors up to `MCP_READ_RETRIES`, and a WRITE tool is attempted exactly once.
 - **S06-AC9** *(new; from the security consideration)* An import-boundary test fails if any module other than `backend/services/remediation*` and `backend/jobs/remediation*` imports `execution_toolset`. `backend/monitoring`, `backend/agents` (diagnostic) and `backend/api` cannot reach it.
-- **S06-AC10** *(new, decision 2026-10-01)* A missing or invalid `TOOL_PERMISSIONS_FILE` stops startup with a `ConfigurationError` naming the problem. Cases: missing file, YAML error, unknown key, duplicate `(server, tool)`, unknown server, unsafe YAML tag.
+- **S06-AC10** *(new, decision 2026-10-01)* A missing or invalid `TOOL_PERMISSIONS_FILE` stops startup with a `ConfigurationError` naming the problem. Cases: missing file, YAML error, unknown key, duplicate `(server, tool)`, unknown server, unsafe YAML tag, **missing `definition_sha256`**, and unreviewed `access`.
 - **S06-AC11** *(new)* Output beyond `max_output_bytes` is truncated at a UTF-8 boundary with a marker and `truncated=true`. Tool error messages, `/mcp-status` and logs never contain call arguments, credentials or server stack traces.
 
 ## Test plan
@@ -158,7 +196,10 @@ None. Audit rows use `operation_audit` (S02).
 Revert the code. Audit rows remain.
 
 ## Open issues
-- **Decided 2026-10-01 (product owner):** an invalid or missing registry fails startup (AC10).
+- **Decided 2026-10-01 (product owner):**
+  - an invalid or missing registry fails startup (AC10);
+  - the write tripwire is the hybrid rule plus `readOnlyHint` (AC3 amended);
+  - definition pins are mandatory and cover the full definition.
 - **Cross-slice:**
   - **S07, S24:** add registry entries (with `input_schema_sha256`) for every tool; their servers expose `GET /health` and an `mcp_servers.<name>` module entry point.
   - **S08:** wraps `ToolHandle` and reports out-of-set calls as `TOOL_NOT_ALLOWED`.
@@ -169,6 +210,36 @@ Revert the code. Audit rows remain.
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|
+| Lint / format | `uv run ruff check .` / `uv run ruff format --check .` | pass | |
+| Types | `uv run mypy backend frontend tools` | pass | strict, 91 files |
+| Unit + contract | `uv run pytest -m "not integration and not e2e and not live"` | 680 passed, 1 skipped | Includes the hypothesis property test (200 random worlds: enabled/healthy servers, hints, pin drift, independent expectation). The skip is the S04 Windows symlink test. |
+| Integration | `uv run pytest -m integration` | 47 passed | Real mcp 2.2 SDK path: autostarted devecho with discover, read, error and clean shutdown; a closed port maps to `ToolUnavailable` and a hanging socket to `ToolTimeout`. Audit rows were written in a migrated throwaway DB. |
+| Traceability | `uv run python tools/trace.py --strict` | pass | S06-AC1..AC11 covered |
+| Runtime | `python -m mcp_servers.devecho` + `python tools/mcp_pin.py http://127.0.0.1:8097/mcp postgresql` | pass | Printed four pinned entries with correct hints (three read-only; `set_note` destructive and write-looking). The server was stopped afterwards. |
+| Reviews | code-reviewer, security-reviewer | findings addressed | The first attempt hit the session usage limit and was re-run. Dispositions below. |
+
+**Review dispositions.**
+- **Fixed:**
+  - SDK failures escaping unmapped (code H1, security M1).
+  - Writes running without a start row (security H1, code M1).
+  - Cancellation leaving an orphaned start row (code M2).
+  - Tripwire vs spec (code M3, security L1; product-owner decision).
+  - AC4 property gaps (code M4).
+  - Boundary bypasses (code M5, security M2).
+  - Discovery race (code M6).
+  - Pagination (code M7).
+  - Rug pull and tool poisoning (security M3; product-owner decision: mandatory full-definition pins plus live re-check).
+  - Untrusted names (security L2).
+  - Autostart env, cwd, tree kill, loopback and backoff (security L3, code L).
+  - Output cap ≤ 8 KB (security L4).
+  - Prod https or loopback (security L5).
+  - Double snapshot read (security L6).
+  - Lifespan cleanup (code L).
+  - Spec drift recorded (code L).
+  - The start-before-call test now checks state at call time (code L).
+- **Handed downstream:** read-only enforcement at the database layer (S07), the agent-facing use of `ToolCallError.detail` (S08), and outcome-unknown handling in remediation (S11).
+- **Accepted as-is:**
+  - The extra round trips per call (fresh session, SDK result validation). Correctness over latency at v1 scale; revisit with S23 metrics.
 
 ## Changelog
 - 2026-09-29 — created (DRAFT)
@@ -179,3 +250,4 @@ Revert the code. Audit rows remain.
   - Product owner decided that an invalid registry fails startup.
   - Status READY.
 - 2026-10-01 — approved by product owner ("approve S06 and implement it"). Status IN_PROGRESS.
+- 2026-10-01 — implemented. Reviews by code-reviewer and security-reviewer were addressed (re-run after a session-limit failure). Product owner decided the hybrid tripwire with `readOnlyHint` and mandatory full-definition pins: AC3 and AC10 amended. Status IN_REVIEW.

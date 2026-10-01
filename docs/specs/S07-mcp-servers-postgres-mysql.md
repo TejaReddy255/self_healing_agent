@@ -72,6 +72,7 @@ Revert; stop the servers.
 
 ## Open issues
 - From S06 refinement: add a `config/tool_permissions.yaml` entry for every tool, pinning `input_schema_sha256` (SHA-256 of the canonical JSON input schema). Servers must expose `GET /health` at the URL origin and run as `python -m mcp_servers.<name>`, so S06 autostart can launch them in dev.
+- From S06 review: (1) Mark every read tool `readOnlyHint=true` (and write tools `destructiveHint=true`); read entries without `readOnlyHint` are excluded as MISMATCH. (2) Generate registry entries with `uv run python tools/mcp_pin.py <url> <server>`: every entry must carry `definition_sha256` and a human-chosen `access`. (3) Name the servers' own settings `MCP_*` (e.g. `MCP_POSTGRES_READER_DSN`), because autostarted children receive only OS basics plus `MCP_*` variables. (4) Enforce read-only at the database layer for read tools (a read-only role or `SET TRANSACTION READ ONLY`), because READ and WRITE tools share one server process.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |

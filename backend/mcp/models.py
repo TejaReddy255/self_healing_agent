@@ -16,18 +16,32 @@ class ToolClass(StrEnum):
     READ = "READ"
     WRITE = "WRITE"
     UNCLASSIFIED = "UNCLASSIFIED"  # not in the registry: unusable (default deny)
-    MISMATCH = "MISMATCH"  # registered as read but looks like a write: excluded
-    SCHEMA_CHANGED = "SCHEMA_CHANGED"  # pinned input schema no longer matches: excluded
+    MISMATCH = "MISMATCH"  # registered as read but failed a write tripwire: excluded
+    SCHEMA_CHANGED = "SCHEMA_CHANGED"  # live definition differs from the pinned hash: excluded
 
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """A tool as advertised by an MCP server."""
+    """A tool as advertised by an MCP server.
+
+    ``annotations`` holds the MCP hints (``read_only_hint``, ``destructive_hint``,
+    ``idempotent_hint``, ``open_world_hint``) when the server sends them.
+    """
 
     name: str
     description: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
-    destructive_hint: bool | None = None
+    annotations: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def read_only_hint(self) -> bool | None:
+        value = self.annotations.get("read_only_hint")
+        return value if isinstance(value, bool) else None
+
+    @property
+    def destructive_hint(self) -> bool | None:
+        value = self.annotations.get("destructive_hint")
+        return value if isinstance(value, bool) else None
 
 
 @dataclass(frozen=True)
@@ -38,6 +52,7 @@ class ClassifiedTool:
     timeout_s: float
     max_output_bytes: int
     reason: str | None = None
+    definition_sha256: str = ""
 
     @property
     def qualified_name(self) -> str:
@@ -67,6 +82,9 @@ class ServerState:
     tools: MappingProxyType[str, ClassifiedTool] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    # Tools the server advertised that could not even be classified (invalid or duplicate names,
+    # or beyond the per-server cap). They are never usable.
+    ignored_tools: int = 0
 
     def tools_of(self, *classes: ToolClass) -> tuple[ClassifiedTool, ...]:
         return tuple(t for _, t in sorted(self.tools.items()) if t.tool_class in classes)

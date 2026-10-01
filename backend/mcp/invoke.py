@@ -1,21 +1,27 @@
 """Tool handles and audited invocation (S06).
 
-Every call writes a start row *before* contacting the server (so a crash during a write still
-leaves evidence) and an end row after it. READ tools retry transport failures; WRITE tools are
-attempted exactly once (NFR-011).
+Every call writes a start row *before* contacting the server and an end row after it, including
+on cancellation. For a WRITE the start row is mandatory: without it (no audit sink, or the audit
+database is down) the write is refused before the server is contacted (invariant 12). READ tools
+retry failures where the request never ran; WRITE tools are attempted exactly once (NFR-011).
+
+Handles are built only by ``backend.mcp.toolsets`` (construction needs a private token), and each
+call re-checks the live discovery snapshot: a tool that has since become unusable, or whose
+definition changed, is refused.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from backend.domain.audit import AuditEvent
 from backend.mcp.connector import MCPConnector
-from backend.mcp.errors import ToolError, ToolUnavailable
+from backend.mcp.errors import ToolError, ToolNotPermitted, ToolOutcomeUnknown, ToolUnavailable
 from backend.mcp.models import ClassifiedTool, InvocationContext, ToolClass, ToolOutput
 from backend.mcp.settings import ServerConfig
 
@@ -37,6 +43,10 @@ def cap_output(text: str, max_bytes: int) -> tuple[str, bool, int]:
     return kept + TRUNCATION_MARKER.format(count=len(data) - len(kept.encode())), True, len(data)
 
 
+_CONSTRUCTION_TOKEN = object()
+LiveLookup = Callable[[], ClassifiedTool | None]
+
+
 @dataclass(frozen=True)
 class ToolHandle:
     """One usable tool, bound to its server. Immutable; built only by the toolset functions."""
@@ -46,6 +56,14 @@ class ToolHandle:
     connector: MCPConnector
     audit: AuditSink | None
     read_retries: int
+    live: LiveLookup
+    _token: object
+
+    def __post_init__(self) -> None:
+        if self._token is not _CONSTRUCTION_TOKEN:
+            raise TypeError("ToolHandle objects are created only by backend.mcp.toolsets")
+        if not self.tool.usable:
+            raise TypeError("only READ and WRITE tools can have handles")
 
     @property
     def name(self) -> str:
@@ -63,10 +81,27 @@ class ToolHandle:
     def input_schema(self) -> Mapping[str, Any]:
         return self.tool.spec.input_schema
 
+    def _check_still_permitted(self) -> None:
+        current = self.live()
+        if (
+            current is None
+            or current.tool_class is not self.tool.tool_class
+            or current.definition_sha256 != self.tool.definition_sha256
+        ):
+            raise ToolNotPermitted(f"{self.name} is no longer permitted")
+
     async def invoke(self, arguments: Mapping[str, Any], ctx: InvocationContext) -> ToolOutput:
+        write = self.access is ToolClass.WRITE
+        try:
+            self._check_still_permitted()
+        except ToolNotPermitted as exc:
+            await self._audit(ctx, exc.status, arguments, None, None)
+            raise
         started = time.monotonic()
-        await self._audit(ctx, "STARTED", arguments, None, None)
-        attempts = 1 + (self.read_retries if self.access is ToolClass.READ else 0)
+        recorded = await self._audit(ctx, "STARTED", arguments, None, None)
+        if write and not recorded:
+            raise ToolNotPermitted(f"{self.name}: refusing a write without a recorded start row")
+        attempts = 1 if write else 1 + self.read_retries
         try:
             for attempt in range(attempts):
                 try:
@@ -74,12 +109,18 @@ class ToolHandle:
                         self.server, self.tool.spec.name, arguments, self.tool.timeout_s
                     )
                     break
-                except ToolUnavailable:
-                    if attempt + 1 >= attempts:
+                except (ToolUnavailable, ToolOutcomeUnknown) as exc:
+                    # Reads are safe to repeat; a timeout is not retried (it already took long).
+                    if attempt + 1 >= attempts or exc.status == "TIMEOUT":
                         raise
-                    logger.warning("mcp read tool unavailable; retrying", extra={"tool": self.name})
+                    logger.warning("mcp read tool failed; retrying", extra={"tool": self.name})
         except ToolError as exc:
             await self._audit(ctx, exc.status, arguments, None, started)
+            raise
+        except asyncio.CancelledError:
+            # The caller gave up; the server may still have run the call. Record that, then
+            # let the cancellation through.
+            await asyncio.shield(self._audit(ctx, "CANCELLED", arguments, None, started))
             raise
         except Exception:
             await self._audit(ctx, "OUTCOME_UNKNOWN", arguments, None, started)
@@ -104,9 +145,10 @@ class ToolHandle:
         arguments: Mapping[str, Any],
         output: str | None,
         started: float | None,
-    ) -> None:
+    ) -> bool:
+        """Write one audit row; return whether it was stored."""
         if self.audit is None:
-            return
+            return False
         event = AuditEvent(
             phase=ctx.phase,
             event_type="TOOL_CALL",
@@ -131,6 +173,8 @@ class ToolHandle:
         try:
             await self.audit.record(event)
         except Exception:
-            # An audit outage must not hide what happened, nor turn a completed write into an
-            # error the caller might retry. Log loudly instead.
+            # After a call, an audit outage must not turn a completed write into an error the
+            # caller might retry: log loudly. (Before a write, the caller refuses instead.)
             logger.exception("mcp tool audit failed", extra={"tool": self.name, "status": status})
+            return False
+        return True

@@ -11,13 +11,21 @@ from backend.app import create_app
 from backend.config import ConfigurationError, Settings
 from backend.domain.common import SystemName
 from tests.conftest import auth
-from tests.fakes.mcp import FakeMCPConnector, FakeServer, mcp_settings, tool, write_registry
+from tests.fakes.mcp import (
+    FakeMCPConnector,
+    FakeServer,
+    entry,
+    mcp_settings,
+    tool,
+    write_registry,
+)
 
 PG, MY = SystemName.POSTGRESQL, SystemName.MYSQL
+SELECT, DML, DROP = tool("run_select"), tool("execute_dml"), tool("drop_table")
 ENTRIES = [
-    {"server": "postgresql", "tool": "run_select", "access": "read"},
-    {"server": "postgresql", "tool": "execute_dml", "access": "write"},
-    {"server": "postgresql", "tool": "drop_table", "access": "read"},
+    entry("postgresql", SELECT, "read"),
+    entry("postgresql", DML, "write"),
+    entry("postgresql", DROP, "read"),  # MISMATCH
 ]
 
 
@@ -40,9 +48,7 @@ def app_with(
 def test_status_lists_classes_and_unusable_tools(
     make_settings: Callable[..., Settings], tmp_path: Path
 ) -> None:
-    pg = FakeServer(
-        tools=[tool("run_select"), tool("execute_dml"), tool("drop_table"), tool("mystery")]
-    )
+    pg = FakeServer(tools=[SELECT, DML, DROP, tool("mystery")])
     with app_with(make_settings, tmp_path, {PG: pg}) as client:
         body = client.get("/mcp-status", headers=auth("viewer")).json()
         postgres = next(s for s in body["servers"] if s["name"] == "postgresql")
@@ -71,7 +77,7 @@ def test_status_lists_classes_and_unusable_tools(
 def test_readiness_reflects_server_health(
     make_settings: Callable[..., Settings], tmp_path: Path, overrides: dict[str, Any], expected: str
 ) -> None:
-    servers = {PG: FakeServer(tools=[tool("run_select")])}  # mysql/s3/mongodb have no fake: down
+    servers = {PG: FakeServer(tools=[SELECT])}  # mysql/s3/mongodb have no fake: down
     with app_with(make_settings, tmp_path, servers, **overrides) as client:
         ready = client.get("/health/ready", headers=auth("viewer"))
         assert ready.json()["components"]["mcp"]["status"] == expected

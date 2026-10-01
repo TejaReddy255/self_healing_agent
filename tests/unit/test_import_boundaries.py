@@ -215,3 +215,66 @@ def test_execution_toolset_checker_flags_imports(tmp_path: Path) -> None:
         "1: from backend.mcp.toolsets import execution_toolset",
         "3: .execution_toolset",
     ]
+
+
+# Bypass routes found in review: building handles directly, reaching the raw connector, or using
+# the private factory. Only backend/mcp itself (and remediation code) may do any of these.
+PRIVILEGED_MCP_NAMES = {"ToolHandle", "_CONSTRUCTION_TOKEN", "_handles", "connector"}
+
+
+def privileged_mcp_references(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name == "ToolHandle":
+                found.append(f"{node.lineno}: ToolHandle(...)")
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith("backend.mcp")
+        ):
+            for alias in node.names:
+                if alias.name in {"_CONSTRUCTION_TOKEN", "_handles"}:
+                    found.append(f"{node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.Attribute) and node.attr in {"_CONSTRUCTION_TOKEN", "_handles"}:
+            found.append(f"{node.lineno}: .{node.attr}")
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr == "connector"
+            and (isinstance(node.value, ast.Name) and "manager" in node.value.id.lower())
+        ):
+            found.append(f"{node.lineno}: manager.connector")
+    return found
+
+
+@pytest.mark.spec("S06-AC9")
+def test_no_module_bypasses_the_toolset_functions() -> None:
+    mcp_package = REPO / "backend" / "mcp"
+    problems = []
+    for root in SCANNED:
+        for path in sorted(root.rglob("*.py")):
+            relative = path.relative_to(REPO).as_posix()
+            if path.is_relative_to(mcp_package) or relative.startswith(EXECUTION_TOOLSET_ALLOWED):
+                continue
+            problems.extend(f"{relative}:{hit}" for hit in privileged_mcp_references(path))
+    assert problems == []
+
+
+@pytest.mark.spec("S06-AC9")
+def test_bypass_checker_flags_direct_handle_use(tmp_path: Path) -> None:
+    sample = tmp_path / "sneaky.py"
+    sample.write_text(
+        "from backend.mcp.invoke import _CONSTRUCTION_TOKEN, ToolHandle\n"
+        "h = ToolHandle(t, s, c, None, 0, live, _CONSTRUCTION_TOKEN)\n"
+        "await mcp_manager.connector.call_tool(cfg, 'execute_dml', {}, 5)\n"
+        "from backend.mcp.toolsets import _handles\n",
+        encoding="utf-8",
+    )
+    hits = privileged_mcp_references(sample)
+    assert any("ToolHandle(" in h for h in hits)
+    assert any("_CONSTRUCTION_TOKEN" in h for h in hits)
+    assert any("manager.connector" in h for h in hits)
+    assert any("_handles" in h for h in hits)

@@ -16,7 +16,8 @@ from backend.domain.common import SystemName
 DEFAULT_PERMISSIONS_FILE = Path(__file__).resolve().parents[2] / "config" / "tool_permissions.yaml"
 # Autostart may only launch our own server packages: never an arbitrary command.
 _MODULE = re.compile(r"^mcp_servers\.[a-z][a-z0-9_]*$")
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# Literal loopback addresses only: "localhost" depends on name resolution.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
 
 
 def _check_url(value: str) -> str:
@@ -85,7 +86,8 @@ class MCPSettings(BaseSettings):
 
     mcp_autostart: bool = False
     mcp_default_timeout_s: float = Field(default=60.0, gt=0, le=600)
-    mcp_max_output_bytes: int = Field(default=8192, ge=256, le=1_048_576)
+    # NFR-006: at most 8 KB of a tool result ever reaches the caller (and the LLM).
+    mcp_max_output_bytes: int = Field(default=8192, ge=256, le=8192)
     mcp_probe_timeout_s: float = Field(default=3.0, gt=0, le=30)
     mcp_refresh_interval_s: float = Field(default=60.0, ge=0, le=86_400)
     mcp_read_retries: int = Field(default=2, ge=0, le=5)
@@ -117,8 +119,17 @@ class MCPSettings(BaseSettings):
         return {name: config(name) for name in SystemName}
 
     def check_for_env(self, env: str) -> None:
-        if env == "prod" and self.mcp_autostart:
+        if env != "prod":
+            return
+        if self.mcp_autostart:
             raise ConfigurationError("MCP_AUTOSTART must not be enabled when ENV=prod")
+        for config in self.servers().values():
+            # MCP servers are unauthenticated: over plain http a network attacker could inject
+            # tools. In prod they must be local or reached over https.
+            if config.enabled and not config.loopback and not config.url.startswith("https://"):
+                raise ConfigurationError(
+                    f"ENV=prod requires https or a loopback URL for MCP_{config.name.name}_URL"
+                )
 
 
 def load_mcp_settings() -> MCPSettings:

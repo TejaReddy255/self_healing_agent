@@ -13,7 +13,7 @@ import yaml
 from backend.domain.common import SystemName
 from backend.mcp.errors import ToolCallError, ToolTimeout, ToolUnavailable
 from backend.mcp.models import ServerHealth, ToolCallResult, ToolSpec
-from backend.mcp.permissions import ToolPermissionRegistry, schema_sha256
+from backend.mcp.permissions import ToolPermissionRegistry, definition_sha256
 from backend.mcp.settings import MCPSettings, ServerConfig
 
 Result = str | Exception | Callable[[Mapping[str, Any]], str]
@@ -82,13 +82,28 @@ class FakeMCPConnector:
         return ToolCallResult(content_text=text, is_error=False)
 
 
-def tool(name: str, **schema_props: str) -> ToolSpec:
+def tool(name: str, *, hints: dict[str, Any] | None = None, **schema_props: str) -> ToolSpec:
+    """A tool spec; annotated readOnlyHint=true unless ``hints`` says otherwise."""
     schema = {
         "type": "object",
         "properties": {k: {"type": v} for k, v in schema_props.items()},
         "required": sorted(schema_props),
     }
-    return ToolSpec(name=name, description=f"{name} tool", input_schema=schema)
+    annotations = {"read_only_hint": True} if hints is None else hints
+    return ToolSpec(
+        name=name, description=f"{name} tool", input_schema=schema, annotations=annotations
+    )
+
+
+def entry(server: str, spec: ToolSpec, access: str, **extra: Any) -> dict[str, Any]:
+    """A registry entry pinned to ``spec``'s current definition."""
+    return {
+        "server": server,
+        "tool": spec.name,
+        "access": access,
+        "definition_sha256": definition_sha256(spec),
+        **extra,
+    }
 
 
 def write_registry(path: Path, entries: list[dict[str, Any]]) -> Path:
@@ -110,4 +125,4 @@ def mcp_settings(tmp_path: Path, **overrides: Any) -> MCPSettings:
     return MCPSettings(_env_file=None, **values)
 
 
-__all__ = ["FakeMCPConnector", "FakeServer", "mcp_settings", "registry", "schema_sha256", "tool"]
+__all__ = ["FakeMCPConnector", "FakeServer", "entry", "mcp_settings", "registry", "tool"]

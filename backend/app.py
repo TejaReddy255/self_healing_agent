@@ -215,17 +215,25 @@ def create_app(
         if database is not None:
             await database.open()
         metadata_refresher.start()
-        await mcp_manager.discover()
-        mcp_manager.start_refresh()
         try:
+            # Inside the try: if startup is cancelled mid-discovery, autostarted servers stop.
+            await mcp_manager.discover()
+            mcp_manager.start_refresh()
             yield
         finally:
-            await mcp_manager.shutdown()
-            await metadata_refresher.stop()
-            if owned_airflow_client is not None:
-                await owned_airflow_client.aclose()
-            if database is not None:
-                await database.close()
+            # Each step runs even if an earlier one fails.
+            for step in (
+                mcp_manager.shutdown,
+                metadata_refresher.stop,
+                owned_airflow_client.aclose if owned_airflow_client is not None else None,
+                database.close if database is not None else None,
+            ):
+                if step is None:
+                    continue
+                try:
+                    await step()
+                except Exception:
+                    logger.exception("shutdown step failed", extra={"step": step.__qualname__})
             logger.info("service stopped")
 
     # Interactive docs and the OpenAPI schema are unauthenticated, so they are off in prod.

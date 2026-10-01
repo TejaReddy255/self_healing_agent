@@ -16,7 +16,7 @@ from backend.mcp.manager import MCPManager
 from backend.mcp.models import InvocationContext
 from backend.mcp.toolsets import diagnostic_toolset
 from backend.services.audit_service import AuditService
-from tests.fakes.mcp import FakeMCPConnector, FakeServer, mcp_settings, registry, tool
+from tests.fakes.mcp import FakeMCPConnector, FakeServer, entry, mcp_settings, registry, tool
 from tests.integration.conftest import connect
 
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
@@ -33,18 +33,11 @@ def test_invocations_write_start_and_end_rows(
         await database.open()
         try:
             audit = AuditService(database, 4096)
-            fake = FakeServer(
-                tools=[tool("run_select"), tool("slow_select")],
-                results={"run_select": "x" * 9000},
-            )
+            select, slow = tool("run_select"), tool("slow_select")
+            fake = FakeServer(tools=[select, slow], results={"run_select": "x" * 9000})
             entries = [
-                {"server": "postgresql", "tool": "run_select", "access": "read"},
-                {
-                    "server": "postgresql",
-                    "tool": "slow_select",
-                    "access": "read",
-                    "timeout_s": 0.05,
-                },
+                entry("postgresql", select, "read"),
+                entry("postgresql", slow, "read", timeout_s=0.05),
             ]
             manager = MCPManager(
                 mcp_settings(tmp_path), registry(tmp_path, entries), FakeMCPConnector({PG: fake}),

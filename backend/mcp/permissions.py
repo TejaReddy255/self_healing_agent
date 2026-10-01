@@ -1,8 +1,10 @@
 """Explicit, default-deny tool-permission registry (S06, ADR-005).
 
-The registry is the only classifier. The name heuristic and the server's ``destructiveHint`` are
-tripwires that can only *exclude* a tool registered as read; they never grant anything. A missing
-or invalid registry stops startup (decision 2026-10-01).
+The registry is the only classifier. Every entry pins the SHA-256 of the tool's full definition
+(name, description, input schema, annotations); a different live definition is SCHEMA_CHANGED and
+excluded (decision 2026-10-01). Tripwires can only *exclude* a tool registered as read, never grant
+anything: a write-looking name, ``destructiveHint=true``, or a missing ``readOnlyHint=true``
+(decision 2026-10-01). A missing or invalid registry stops startup.
 """
 
 from __future__ import annotations
@@ -30,25 +32,28 @@ from backend.yaml_safe import StrictYamlError, load_strict
 
 logger = logging.getLogger(__name__)
 
-# Tripwire vocabulary, matched against whole name tokens (split on "_", ".", "-" and camelCase)
-# so read tools such as "describe_dataset" are not flagged. Long verbs also match as a token
-# prefix ("insertRows" -> "insertrows").
-_SHORT_WRITE_WORDS = frozenset({"put", "set", "drop", "copy", "exec"})
+# Tripwire (decision 2026-10-01, hybrid): long write verbs match anywhere in the lower-cased
+# name ("bulkwrite", "SQLExecute", "softdelete"); short words must be whole tokens, so read tools
+# such as "describe_dataset" are not flagged.
 _LONG_WRITE_VERBS = (
     "execute", "insert", "update", "upsert", "delete", "create", "alter", "upload", "remove",
-    "truncate", "merge", "grant", "revoke", "write", "replace", "rename",
+    "truncate", "merge", "grant", "revoke", "write", "replace", "rename", "reset", "purge",
+    "destroy", "modify",
 )  # fmt: skip
-_TOKEN_SPLIT = re.compile(r"[_.\-]+|(?<=[a-z0-9])(?=[A-Z])")
+_SHORT_WRITE_WORDS = frozenset(
+    {"put", "set", "copy", "drop", "exec", "move", "patch", "post", "kill"}
+)
+_TOKEN_SPLIT = re.compile(r"[_.\-\s]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+ToolName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+TOOL_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 def looks_write_capable(name: str) -> bool:
+    lowered = name.lower()
+    if any(verb in lowered for verb in _LONG_WRITE_VERBS):
+        return True
     tokens = [t.lower() for t in _TOKEN_SPLIT.split(name) if t]
-    return any(
-        token in _SHORT_WRITE_WORDS or token.startswith(_LONG_WRITE_VERBS) for token in tokens
-    )
-
-
-ToolName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    return any(token in _SHORT_WRITE_WORDS for token in tokens)
 
 
 class PermissionEntry(BaseModel):
@@ -59,7 +64,8 @@ class PermissionEntry(BaseModel):
     access: Literal["read", "write"]
     timeout_s: Annotated[float, Field(gt=0, le=600)] | None = None
     max_output_bytes: Annotated[int, Field(ge=256, le=1_048_576)] | None = None
-    input_schema_sha256: Sha256Hex | None = None
+    # Mandatory (decision 2026-10-01): pins the whole definition the reviewer vetted.
+    definition_sha256: Sha256Hex
     notes: str | None = None
 
 
@@ -80,10 +86,20 @@ class RegistryFile(BaseModel):
         return self
 
 
-def schema_sha256(schema: dict[str, object]) -> str:
-    """SHA-256 of a tool's canonical JSON input schema (what a registry entry may pin)."""
+def definition_sha256(spec: ToolSpec) -> str:
+    """SHA-256 of a tool's canonical definition: what every registry entry pins.
+
+    The description is included because it reaches prompts (tool poisoning); the annotations
+    because they carry the read-only/destructive hints.
+    """
+    document = {
+        "name": spec.name,
+        "description": spec.description,
+        "input_schema": spec.input_schema,
+        "annotations": spec.annotations,
+    }
     try:
-        return hashlib.sha256(canonical_json(schema)).hexdigest()
+        return hashlib.sha256(canonical_json(document)).hexdigest()
     except CanonicalizationError:
         return "unhashable"
 
@@ -123,31 +139,35 @@ class ToolPermissionRegistry:
         default_max_output_bytes: int,
     ) -> ClassifiedTool:
         entry = self._entries.get((server, spec.name))
+        live_hash = definition_sha256(spec)
 
         def result(tool_class: ToolClass, reason: str | None = None) -> ClassifiedTool:
             timeout = entry.timeout_s if entry and entry.timeout_s else default_timeout_s
             cap = default_max_output_bytes
             if entry and entry.max_output_bytes:
                 cap = min(cap, entry.max_output_bytes)
-            return ClassifiedTool(server, spec, tool_class, timeout, cap, reason)
+            return ClassifiedTool(server, spec, tool_class, timeout, cap, reason, live_hash)
 
         if entry is None:
             return result(ToolClass.UNCLASSIFIED, "not in the permission registry")
-        if (
-            entry.input_schema_sha256 is not None
-            and schema_sha256(spec.input_schema) != entry.input_schema_sha256
-        ):
+        if live_hash != entry.definition_sha256:
             logger.warning(
-                "mcp tool schema changed; tool excluded",
+                "mcp tool definition changed; tool excluded",
                 extra={"server": server.value, "tool": spec.name},
             )
-            return result(ToolClass.SCHEMA_CHANGED, "input schema differs from the pinned hash")
-        if entry.access == "read" and (
-            looks_write_capable(spec.name) or spec.destructive_hint is True
-        ):
-            logger.warning(
-                "mcp tool registered as read looks write-capable; tool excluded",
-                extra={"server": server.value, "tool": spec.name},
-            )
-            return result(ToolClass.MISMATCH, "registered as read but looks write-capable")
+            return result(ToolClass.SCHEMA_CHANGED, "definition differs from the pinned hash")
+        if entry.access == "read":
+            reason = None
+            if looks_write_capable(spec.name):
+                reason = "registered as read but its name looks write-capable"
+            elif spec.destructive_hint is True:
+                reason = "registered as read but the server marks it destructive"
+            elif spec.read_only_hint is not True:
+                reason = "registered as read but the server does not mark it readOnlyHint"
+            if reason is not None:
+                logger.warning(
+                    "mcp read tool failed a tripwire; tool excluded",
+                    extra={"server": server.value, "tool": spec.name, "reason": reason},
+                )
+                return result(ToolClass.MISMATCH, reason)
         return result(ToolClass.WRITE if entry.access == "write" else ToolClass.READ)
