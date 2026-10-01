@@ -41,7 +41,7 @@ def fail(reason: str) -> str:
     raise ValueError(reason)
 
 
-@server.custom_route("/health", methods=["GET"])
+@server.custom_route("/health", methods=["GET"])  # type: ignore[untyped-decorator]
 async def health(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok", "server": "devecho"})
 

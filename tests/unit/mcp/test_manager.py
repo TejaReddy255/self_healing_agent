@@ -162,6 +162,13 @@ def test_autostarted_servers_get_a_minimal_environment() -> None:
     assert set(env) == {"PATH", "SYSTEMROOT", "MCP_POSTGRES_READER_DSN"}
 
 
+@pytest.mark.spec("S07-AC6")
+def test_child_env_keeps_the_login_name_for_getpass() -> None:
+    # aiomysql calls getpass.getuser() at import; on Windows it needs USERNAME (no pwd module).
+    env = child_env({"USERNAME": "dev", "USER": "dev", "LOGNAME": "dev", "PG_USER": "x"})
+    assert set(env) == {"USERNAME", "USER", "LOGNAME"}
+
+
 @pytest.mark.parametrize(
     "url", ["ftp://x/mcp", "http://user:pw@127.0.0.1:8001/mcp", "http://127.0.0.1:8001/mcp?t=1"]
 )
