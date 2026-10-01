@@ -1,7 +1,7 @@
 ---
 id: S06
 title: MCP manager and explicit tool-permission registry
-status: READY
+status: IN_PROGRESS
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, security-reviewer]
@@ -10,8 +10,8 @@ blocked_by: []
 traces: [FR-020, FR-021, FR-022, FR-024, NFR-004, NFR-006, NFR-011]
 source_sections: ["src §5.1 steps 34–36, 39", "src §8", "src §8.1", "src §16 (heuristic classification)"]
 tags: [security-sensitive]
-approved_by:
-approved_on:
+approved_by: product owner
+approved_on: 2026-10-01
 ---
 
 # S06 — MCP manager and tool-permission registry
@@ -178,3 +178,4 @@ Revert the code. Audit rows remain.
   - AC1–AC8 sharpened (IDs kept); AC9–AC11 added.
   - Product owner decided that an invalid registry fails startup.
   - Status READY.
+- 2026-10-01 — approved by product owner ("approve S06 and implement it"). Status IN_PROGRESS.

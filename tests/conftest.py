@@ -13,6 +13,7 @@ from backend.airflow.settings import AirflowSettings
 from backend.app import create_app
 from backend.config import Settings
 from backend.db.settings import DatabaseSettings
+from backend.mcp.settings import MCPSettings
 from backend.metadata.settings import MetadataSettings
 from backend.security.auth import hash_token
 from frontend.api_client import FrontendSettings
@@ -74,6 +75,29 @@ _SETTINGS_ENV_VARS = (
     "AIRFLOW_LOG_MAX_DOWNLOAD_BYTES",
     "AIRFLOW_CONTEXT_RUN_LIMIT",
     "RECOVERY_POLL_SECONDS",
+    "MCP_POSTGRESQL_URL",
+    "MCP_POSTGRESQL_ENABLED",
+    "MCP_POSTGRESQL_REQUIRED",
+    "MCP_POSTGRESQL_MODULE",
+    "MCP_MYSQL_URL",
+    "MCP_MYSQL_ENABLED",
+    "MCP_MYSQL_REQUIRED",
+    "MCP_MYSQL_MODULE",
+    "MCP_S3_URL",
+    "MCP_S3_ENABLED",
+    "MCP_S3_REQUIRED",
+    "MCP_S3_MODULE",
+    "MCP_MONGODB_URL",
+    "MCP_MONGODB_ENABLED",
+    "MCP_MONGODB_REQUIRED",
+    "MCP_MONGODB_MODULE",
+    "MCP_AUTOSTART",
+    "MCP_DEFAULT_TIMEOUT_S",
+    "MCP_MAX_OUTPUT_BYTES",
+    "MCP_PROBE_TIMEOUT_S",
+    "MCP_REFRESH_INTERVAL_S",
+    "MCP_READ_RETRIES",
+    "TOOL_PERMISSIONS_FILE",
 )
 
 
@@ -82,11 +106,15 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep developer shells and a local .env file from leaking into tests."""
     for key in _SETTINGS_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
+    # Tests never reach real MCP endpoints unless they opt in with explicit MCPSettings (S06).
+    for system in ("POSTGRESQL", "MYSQL", "S3", "MONGODB"):
+        monkeypatch.setenv(f"MCP_{system}_ENABLED", "false")
     for settings_class in (
         Settings,
         DatabaseSettings,
         MetadataSettings,
         AirflowSettings,
+        MCPSettings,
         FrontendSettings,
     ):
         monkeypatch.setitem(settings_class.model_config, "env_file", None)
