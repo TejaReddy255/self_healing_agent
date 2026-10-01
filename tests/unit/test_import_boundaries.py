@@ -75,6 +75,8 @@ def test_checker_flags_forbidden_imports(tmp_path: Path) -> None:
 
 REPO = DOMAIN.parent.parent
 METADATA_PACKAGE = REPO / "backend" / "metadata"
+# The hardened YAML parser shared with config files (S06); it never opens METADATA_DIR itself.
+SHARED_YAML_PARSER = REPO / "backend" / "yaml_safe.py"
 SCANNED = [
     p
     for p in (REPO / name for name in ("backend", "frontend", "tools", "dq_agents", "dq_service",
@@ -140,7 +142,7 @@ def test_only_the_metadata_package_reads_metadata_files() -> None:
         f"{path.relative_to(REPO)}:{hit}"
         for root in SCANNED
         for path in sorted(root.rglob("*.py"))
-        if not path.is_relative_to(METADATA_PACKAGE)
+        if not path.is_relative_to(METADATA_PACKAGE) and path != SHARED_YAML_PARSER
         for hit in metadata_file_access(path)
     ]
     assert problems == []
@@ -164,3 +166,115 @@ def test_metadata_boundary_checker_flags_direct_reads(tmp_path: Path) -> None:
     assert any("path literal 'metadata/pipelines/x.yaml'" in h for h in hits)
     assert any("read_bytes()" in h for h in hits)
     assert any("open()" in h for h in hits)
+
+
+# --- S06-AC9: only remediation code may build the execution toolset ---------------------------
+
+EXECUTION_TOOLSET_ALLOWED = ("backend/services/remediation", "backend/jobs/remediation")
+
+
+def execution_toolset_references(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and any(
+            alias.name == "execution_toolset" for alias in node.names
+        ):
+            found.append(f"{node.lineno}: from {node.module} import execution_toolset")
+        elif isinstance(node, ast.Attribute) and node.attr == "execution_toolset":
+            found.append(f"{node.lineno}: .execution_toolset")
+        elif isinstance(node, ast.Name) and node.id == "execution_toolset":
+            found.append(f"{node.lineno}: execution_toolset")
+    return found
+
+
+@pytest.mark.spec("S06-AC9")
+def test_only_remediation_code_can_reach_the_execution_toolset() -> None:
+    definition = REPO / "backend" / "mcp" / "toolsets.py"
+    problems = []
+    for root in SCANNED:
+        for path in sorted(root.rglob("*.py")):
+            relative = path.relative_to(REPO).as_posix()
+            if path == definition or relative.startswith(EXECUTION_TOOLSET_ALLOWED):
+                continue
+            problems.extend(f"{relative}:{hit}" for hit in execution_toolset_references(path))
+    assert problems == []
+
+
+@pytest.mark.spec("S06-AC9")
+def test_execution_toolset_checker_flags_imports(tmp_path: Path) -> None:
+    sample = tmp_path / "sneaky.py"
+    sample.write_text(
+        "from backend.mcp.toolsets import execution_toolset\n"
+        "import backend.mcp.toolsets as t\nt.execution_toolset(m, None, 'mysql')\n",
+        encoding="utf-8",
+    )
+    hits = execution_toolset_references(sample)
+    # The direct import and the attribute access through a module alias are both caught.
+    assert hits == [
+        "1: from backend.mcp.toolsets import execution_toolset",
+        "3: .execution_toolset",
+    ]
+
+
+# Bypass routes found in review: building handles directly, reaching the raw connector, or using
+# the private factory. Only backend/mcp itself (and remediation code) may do any of these.
+PRIVILEGED_MCP_NAMES = {"ToolHandle", "_CONSTRUCTION_TOKEN", "_handles", "connector"}
+
+
+def privileged_mcp_references(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name == "ToolHandle":
+                found.append(f"{node.lineno}: ToolHandle(...)")
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith("backend.mcp")
+        ):
+            for alias in node.names:
+                if alias.name in {"_CONSTRUCTION_TOKEN", "_handles"}:
+                    found.append(f"{node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.Attribute) and node.attr in {"_CONSTRUCTION_TOKEN", "_handles"}:
+            found.append(f"{node.lineno}: .{node.attr}")
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr == "connector"
+            and (isinstance(node.value, ast.Name) and "manager" in node.value.id.lower())
+        ):
+            found.append(f"{node.lineno}: manager.connector")
+    return found
+
+
+@pytest.mark.spec("S06-AC9")
+def test_no_module_bypasses_the_toolset_functions() -> None:
+    mcp_package = REPO / "backend" / "mcp"
+    problems = []
+    for root in SCANNED:
+        for path in sorted(root.rglob("*.py")):
+            relative = path.relative_to(REPO).as_posix()
+            if path.is_relative_to(mcp_package) or relative.startswith(EXECUTION_TOOLSET_ALLOWED):
+                continue
+            problems.extend(f"{relative}:{hit}" for hit in privileged_mcp_references(path))
+    assert problems == []
+
+
+@pytest.mark.spec("S06-AC9")
+def test_bypass_checker_flags_direct_handle_use(tmp_path: Path) -> None:
+    sample = tmp_path / "sneaky.py"
+    sample.write_text(
+        "from backend.mcp.invoke import _CONSTRUCTION_TOKEN, ToolHandle\n"
+        "h = ToolHandle(t, s, c, None, 0, live, _CONSTRUCTION_TOKEN)\n"
+        "await mcp_manager.connector.call_tool(cfg, 'execute_dml', {}, 5)\n"
+        "from backend.mcp.toolsets import _handles\n",
+        encoding="utf-8",
+    )
+    hits = privileged_mcp_references(sample)
+    assert any("ToolHandle(" in h for h in hits)
+    assert any("_CONSTRUCTION_TOKEN" in h for h in hits)
+    assert any("manager.connector" in h for h in hits)
+    assert any("_handles" in h for h in hits)

@@ -22,13 +22,17 @@ from backend.airflow.client import AirflowClient, HttpAirflowClient
 from backend.airflow.context_provider import AirflowContextProvider
 from backend.airflow.errors import AirflowError
 from backend.airflow.settings import AirflowSettings, load_airflow_settings
-from backend.api import activities, airflow, health, metadata, pipelines
+from backend.api import activities, airflow, health, mcp, metadata, pipelines
 from backend.api.errors import error_response, install_exception_handlers
 from backend.config import ConfigurationError, Settings, load_settings
 from backend.db.health import migrations_check
 from backend.db.migrations import MigrationError, discover
 from backend.db.pool import Database, DatabaseUnavailableError
 from backend.db.settings import DatabaseSettings, load_database_settings
+from backend.mcp.connector import MCPConnector, SdkMCPConnector
+from backend.mcp.manager import MCPManager
+from backend.mcp.permissions import ToolPermissionRegistry
+from backend.mcp.settings import MCPSettings, load_mcp_settings
 from backend.metadata.refresher import MetadataRefresher
 from backend.metadata.service import MetadataService
 from backend.metadata.settings import MetadataSettings, load_metadata_settings
@@ -60,11 +64,14 @@ def create_app(
     metadata_settings: MetadataSettings | None = None,
     airflow_settings: AirflowSettings | None = None,
     airflow_client: AirflowClient | None = None,
+    mcp_settings: MCPSettings | None = None,
+    mcp_connector: MCPConnector | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     db_settings = db_settings or load_database_settings()
     metadata_settings = metadata_settings or load_metadata_settings()
     airflow_settings = airflow_settings or load_airflow_settings()
+    mcp_settings = mcp_settings or load_mcp_settings()
     configure_logging(settings.log_level)
     token_registry = TokenRegistry.from_settings(settings)
 
@@ -73,6 +80,9 @@ def create_app(
     if settings.env == "prod" and not db_settings.configured:
         raise ConfigurationError("ENV=prod requires the operational database: set PG_PASSWORD")
     airflow_settings.check_for_env(settings.env)
+    mcp_settings.check_for_env(settings.env)
+    # The permission registry is a security boundary: missing or invalid stops startup (S06).
+    tool_registry = ToolPermissionRegistry.load(mcp_settings.tool_permissions_file)
 
     readiness = ReadinessRegistry()
     broadcaster = ActivityBroadcaster()
@@ -162,6 +172,29 @@ def create_app(
         return status
 
     readiness.register("airflow", airflow_readiness)
+
+    # MCP (S06): discovery runs in the lifespan; readiness and status read the cached snapshot.
+    mcp_manager = MCPManager(
+        mcp_settings,
+        tool_registry,
+        mcp_connector or SdkMCPConnector(probe_timeout_s=mcp_settings.mcp_probe_timeout_s),
+        env=settings.env,
+    )
+
+    async def mcp_readiness() -> ComponentStatus:
+        servers = [s for s in mcp_manager.snapshot().servers.values() if s.enabled]
+        down = [s for s in servers if not s.healthy]
+        if any(s.required for s in down):
+            names = ", ".join(sorted(s.name.value for s in down if s.required))
+            return ComponentStatus(status="down", detail=f"required server down: {names}")
+        if not servers:
+            return ComponentStatus(status="degraded", detail="no servers enabled")
+        if down:
+            names = ", ".join(sorted(s.name.value for s in down))
+            return ComponentStatus(status="degraded", detail=f"down: {names}")
+        return ComponentStatus(status="ok")
+
+    readiness.register("mcp", mcp_readiness)
     metadata_refresher = MetadataRefresher(
         metadata_service, metadata_settings.metadata_refresh_interval_s
     )
@@ -176,19 +209,31 @@ def create_app(
                 "configured_actors": len(token_registry),
                 "database": db_settings.describe() if database else None,
                 "airflow": airflow_settings.describe(),
+                "mcp_registry_entries": len(tool_registry),
             },
         )
         if database is not None:
             await database.open()
         metadata_refresher.start()
         try:
+            # Inside the try: if startup is cancelled mid-discovery, autostarted servers stop.
+            await mcp_manager.discover()
+            mcp_manager.start_refresh()
             yield
         finally:
-            await metadata_refresher.stop()
-            if owned_airflow_client is not None:
-                await owned_airflow_client.aclose()
-            if database is not None:
-                await database.close()
+            # Each step runs even if an earlier one fails.
+            for step in (
+                mcp_manager.shutdown,
+                metadata_refresher.stop,
+                owned_airflow_client.aclose if owned_airflow_client is not None else None,
+                database.close if database is not None else None,
+            ):
+                if step is None:
+                    continue
+                try:
+                    await step()
+                except Exception:
+                    logger.exception("shutdown step failed", extra={"step": step.__qualname__})
             logger.info("service stopped")
 
     # Interactive docs and the OpenAPI schema are unauthenticated, so they are off in prod.
@@ -213,6 +258,7 @@ def create_app(
     app.state.airflow_client = airflow_client
     app.state.airflow_context = airflow_context
     app.state.airflow_actions = airflow_actions
+    app.state.mcp_manager = mcp_manager
 
     install_exception_handlers(app)
     airflow.install_airflow_error_handlers(app)
@@ -222,6 +268,7 @@ def create_app(
     app.include_router(metadata.router)
     app.include_router(airflow.router)
     app.include_router(pipelines.router)
+    app.include_router(mcp.router)
 
     # Added last = outermost: CORS preflight is answered before request handling.
     app.add_middleware(RequestContextMiddleware)

@@ -1,0 +1,10 @@
+# Tool-permission registry (S06, ADR-005). The ONLY classifier of MCP tools: a tool missing here
+# is UNCLASSIFIED and unusable (default deny). Changes are reviewed commits plus a restart; an
+# invalid file stops startup.
+#
+# Entry: {server: postgresql|mysql|s3|mongodb, tool, access: read|write,
+#         timeout_s?, max_output_bytes?, input_schema_sha256?, notes?}
+# Pin input_schema_sha256 (see backend.mcp.permissions.schema_sha256) so a server cannot silently
+# change what a vetted tool accepts. S07 and S24 add the entries for their servers.
+version: 1
+tools: []

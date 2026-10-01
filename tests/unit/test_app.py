@@ -218,12 +218,12 @@ def test_readiness_aggregates_component_states(app: FastAPI, client: TestClient)
     async def broken() -> ComponentStatus:
         raise ConnectionError("postgres://u:secret@db failed")
 
-    registry.register("mcp", broken)
+    registry.register("broken_dependency", broken)
     response = client.get("/health/ready", headers=auth("viewer"))
     assert response.status_code == 503
     body = response.json()
     assert body["status"] == "down"
-    assert body["components"]["mcp"] == {
+    assert body["components"]["broken_dependency"] == {
         "status": "down",
         "detail": "check failed: ConnectionError",
     }

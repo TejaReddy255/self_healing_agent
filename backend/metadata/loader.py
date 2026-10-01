@@ -1,8 +1,7 @@
 """Discover and parse metadata files safely (S04).
 
 Only this package reads ``METADATA_DIR``. Parsing is hardened against hostile or careless input:
-- YAML uses a ``SafeLoader`` subclass that also rejects anchors/aliases (no "billion laughs"
-  expansion) and duplicate mapping keys (no silently ignored values);
+- YAML goes through ``backend.yaml_safe`` (no tags, anchors, duplicate keys or deep nesting);
 - JSON rejects duplicate keys and NaN/Infinity;
 - files are size-capped and must resolve inside the metadata directory (no symlink escapes).
 """
@@ -11,15 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Hashable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-from yaml.nodes import MappingNode, Node
-
 from backend.metadata.models import DocumentType, IssueSeverity, ValidationIssue
+from backend.yaml_safe import MAX_NESTING_DEPTH, StrictYamlError, load_strict
 
 TYPE_DIRECTORIES: dict[str, DocumentType] = {
     "pipelines": DocumentType.PIPELINE,
@@ -32,8 +28,6 @@ TYPE_DIRECTORIES: dict[str, DocumentType] = {
 }
 DOCUMENT_SUFFIXES = frozenset({".yaml", ".yml", ".json"})
 IGNORED_NAMES = frozenset({"README.md"})
-# Metadata documents are shallow; deeper input is rejected before it can exhaust the stack.
-MAX_NESTING_DEPTH = 64
 
 
 class MetadataParseError(ValueError):
@@ -41,49 +35,6 @@ class MetadataParseError(ValueError):
         super().__init__(message)
         self.code = code
         self.message = message
-
-
-class _StrictSafeLoader(yaml.SafeLoader):
-    """Safe YAML without aliases, duplicate or unhashable keys, or excessive nesting."""
-
-    def __init__(self, stream: str) -> None:
-        super().__init__(stream)
-        self._depth = 0
-
-    def compose_node(self, parent: Node | None, index: int) -> Node | None:
-        event = self.peek_event()  # type: ignore[no-untyped-call]
-        line = event.start_mark.line + 1
-        if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
-            raise MetadataParseError(
-                "UNSAFE_YAML", f"anchors and aliases are not allowed (line {line})"
-            )
-        self._depth += 1
-        if self._depth > MAX_NESTING_DEPTH:
-            raise MetadataParseError(
-                "YAML_INVALID", f"nesting deeper than {MAX_NESTING_DEPTH} levels (line {line})"
-            )
-        try:
-            node: Node | None = super().compose_node(parent, index)
-        finally:
-            self._depth -= 1
-        return node
-
-    def construct_mapping(self, node: MappingNode, deep: bool = False) -> dict[Hashable, Any]:
-        seen: set[object] = set()
-        for key_node, _ in node.value:
-            key = self.construct_object(key_node, deep=deep)
-            line = key_node.start_mark.line + 1
-            if isinstance(key, (list, dict, set)) or not isinstance(key, Hashable):
-                raise MetadataParseError(
-                    "YAML_INVALID", f"mapping keys must be scalars (line {line})"
-                )
-            if key in seen:
-                raise MetadataParseError(
-                    "YAML_INVALID",
-                    f"duplicate key {key!r} (line {key_node.start_mark.line + 1})",
-                )
-            seen.add(key)
-        return super().construct_mapping(node, deep=deep)
 
 
 @dataclass(frozen=True)
@@ -228,17 +179,11 @@ def parse(source: SourceFile, data: bytes) -> dict[str, Any]:
                 text, object_pairs_hook=_no_duplicate_pairs, parse_constant=_reject_constant
             )
         else:
-            parsed = yaml.load(text, Loader=_StrictSafeLoader)  # noqa: S506 - strict SafeLoader
+            parsed = load_strict(text)
     except MetadataParseError:
         raise
-    except yaml.constructor.ConstructorError as exc:
-        problem = exc.problem or "cannot construct a value"
-        code = "UNSAFE_YAML" if "tag" in problem else "YAML_INVALID"
-        raise MetadataParseError(code, f"unsupported YAML: {problem}") from exc
-    except yaml.YAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        where = f" (line {mark.line + 1})" if mark is not None else ""
-        raise MetadataParseError("YAML_INVALID", f"invalid YAML{where}") from exc
+    except StrictYamlError as exc:
+        raise MetadataParseError(exc.code, exc.message) from exc
     except json.JSONDecodeError as exc:
         raise MetadataParseError("YAML_INVALID", f"invalid JSON (line {exc.lineno})") from exc
     except RecursionError as exc:

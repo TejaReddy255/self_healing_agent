@@ -46,6 +46,7 @@ Stop the servers. Remove the registry entries.
 
 ## Open issues
 - From S06 refinement: as for S07, add registry entries with `input_schema_sha256`, a `GET /health` endpoint and `mcp_servers.<name>` module entry points.
+- From S06 review: as for S07, set `readOnlyHint` and `destructiveHint` annotations, generate pinned entries with `tools/mcp_pin.py`, name settings `MCP_*`, and enforce read-only access in the backing store for read tools.
 
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
