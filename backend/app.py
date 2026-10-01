@@ -16,7 +16,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api import activities, health, metadata
+from backend.airflow.client import AirflowClient, HttpAirflowClient
+from backend.airflow.context_provider import AirflowContextProvider
+from backend.airflow.errors import AirflowError
+from backend.airflow.settings import AirflowSettings, load_airflow_settings
+from backend.api import activities, airflow, health, metadata, pipelines
 from backend.api.errors import error_response, install_exception_handlers
 from backend.config import ConfigurationError, Settings, load_settings
 from backend.db.health import migrations_check
@@ -32,6 +36,7 @@ from backend.observability.middleware import RequestContextMiddleware
 from backend.observability.readiness import ComponentStatus, ReadinessRegistry
 from backend.security.auth import TokenRegistry
 from backend.services.activity_service import ActivityBroadcaster, ActivityService
+from backend.services.airflow_actions import AirflowActionService
 from backend.services.audit_service import AuditService
 from backend.services.metadata_audit import make_reload_auditor
 
@@ -48,10 +53,13 @@ def create_app(
     settings: Settings | None = None,
     db_settings: DatabaseSettings | None = None,
     metadata_settings: MetadataSettings | None = None,
+    airflow_settings: AirflowSettings | None = None,
+    airflow_client: AirflowClient | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     db_settings = db_settings or load_database_settings()
     metadata_settings = metadata_settings or load_metadata_settings()
+    airflow_settings = airflow_settings or load_airflow_settings()
     configure_logging(settings.log_level)
     token_registry = TokenRegistry.from_settings(settings)
 
@@ -59,6 +67,7 @@ def create_app(
         logger.warning("no API tokens configured: every authenticated route will return 401")
     if settings.env == "prod" and not db_settings.configured:
         raise ConfigurationError("ENV=prod requires the operational database: set PG_PASSWORD")
+    airflow_settings.check_for_env(settings.env)
 
     readiness = ReadinessRegistry()
     broadcaster = ActivityBroadcaster()
@@ -96,6 +105,36 @@ def create_app(
         return ComponentStatus(status="ok")
 
     readiness.register("metadata", metadata_readiness)
+
+    # Airflow (S05): optional outside prod. An injected client (tests, fakes) wins.
+    owned_airflow_client: HttpAirflowClient | None = None
+    if airflow_client is None and airflow_settings.configured:
+        owned_airflow_client = HttpAirflowClient(airflow_settings)
+        airflow_client = owned_airflow_client
+    if airflow_client is None:
+        logger.warning("airflow not configured (AIRFLOW_BASE_URL unset): airflow routes return 503")
+    airflow_context = AirflowContextProvider(
+        airflow_client, run_limit=airflow_settings.airflow_context_run_limit
+    )
+    airflow_actions = AirflowActionService(airflow_client, metadata_service, audit_service)
+
+    async def airflow_readiness() -> ComponentStatus:
+        # Never "down": an Airflow outage must not take the control plane out of rotation.
+        if airflow_client is None:
+            return ComponentStatus(status="degraded", detail="not configured")
+        try:
+            health_status = await airflow_client.health(retry=False)
+        except AirflowError as exc:
+            return ComponentStatus(status="degraded", detail=exc.category)
+        if not health_status.healthy:
+            return ComponentStatus(
+                status="degraded",
+                detail=f"metadatabase {health_status.metadatabase}, "
+                f"scheduler {health_status.scheduler}",
+            )
+        return ComponentStatus(status="ok")
+
+    readiness.register("airflow", airflow_readiness)
     metadata_refresher = MetadataRefresher(
         metadata_service, metadata_settings.metadata_refresh_interval_s
     )
@@ -109,6 +148,7 @@ def create_app(
                 "version": settings.version,
                 "configured_actors": len(token_registry),
                 "database": db_settings.describe() if database else None,
+                "airflow": airflow_settings.describe(),
             },
         )
         if database is not None:
@@ -118,6 +158,8 @@ def create_app(
             yield
         finally:
             await metadata_refresher.stop()
+            if owned_airflow_client is not None:
+                await owned_airflow_client.aclose()
             if database is not None:
                 await database.close()
             logger.info("service stopped")
@@ -141,12 +183,18 @@ def create_app(
     app.state.activity_service = activity_service
     app.state.metadata_service = metadata_service
     app.state.metadata_refresher = metadata_refresher
+    app.state.airflow_client = airflow_client
+    app.state.airflow_context = airflow_context
+    app.state.airflow_actions = airflow_actions
 
     install_exception_handlers(app)
+    airflow.install_airflow_error_handlers(app)
     app.add_exception_handler(DatabaseUnavailableError, _database_unavailable)
     app.include_router(health.router)
     app.include_router(activities.router)
     app.include_router(metadata.router)
+    app.include_router(airflow.router)
+    app.include_router(pipelines.router)
 
     # Added last = outermost: CORS preflight is answered before request handling.
     app.add_middleware(RequestContextMiddleware)

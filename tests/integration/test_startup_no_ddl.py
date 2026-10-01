@@ -83,7 +83,9 @@ def test_ready_when_all_migrations_applied(
 
     assert recorded_ddl(migrated_db) == []
     assert status == 200
-    assert body["status"] == "ok"
+    # Airflow is unconfigured here, so overall readiness is "degraded" (S05), never "down".
+    assert body["status"] in ("ok", "degraded")
+    assert body["components"]["db"] == {"status": "ok", "detail": None}
     expected = f"{len(discover(DEFAULT_MIGRATIONS_DIR))} applied"
     assert body["components"]["migrations"] == {"status": "ok", "detail": expected}
 

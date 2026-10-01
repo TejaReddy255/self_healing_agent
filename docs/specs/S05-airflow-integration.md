@@ -1,7 +1,7 @@
 ---
 id: S05
 title: Airflow client, live context provider, operator APIs (META-09)
-status: READY
+status: IN_PROGRESS
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, security-reviewer]
@@ -10,8 +10,8 @@ blocked_by: []
 traces: [FR-010, FR-011, FR-012, FR-013, FR-014, NFR-001, NFR-002, NFR-011, NFR-012]
 source_sections: ["src §4.1", "src §7", "src §33.8", "src §33.9", "src §35.3"]
 tags: [security-sensitive]
-approved_by:
-approved_on:
+approved_by: product owner
+approved_on: 2026-10-01
 ---
 
 # S05 — Airflow integration
@@ -235,3 +235,4 @@ Revert the code. No data is written apart from audit rows.
   - AC1–AC8 sharpened (IDs kept); AC9–AC12 added.
   - Product owner decided: registered DAGs only, no operator conf, verification with the fake.
   - Status READY.
+- 2026-10-01 — approved by product owner ("approve S05 and implement it"). Status IN_PROGRESS.

@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from backend.airflow.settings import AirflowSettings
 from backend.app import create_app
 from backend.config import Settings
 from backend.db.settings import DatabaseSettings
@@ -62,6 +63,17 @@ _SETTINGS_ENV_VARS = (
     "METADATA_DIR",
     "METADATA_MAX_FILE_BYTES",
     "METADATA_REFRESH_INTERVAL_S",
+    "AIRFLOW_BASE_URL",
+    "AIRFLOW_USERNAME",
+    "AIRFLOW_PASSWORD",
+    "AIRFLOW_API_VERSION",
+    "AIRFLOW_CONNECT_TIMEOUT_S",
+    "AIRFLOW_READ_TIMEOUT_S",
+    "AIRFLOW_GET_RETRIES",
+    "AIRFLOW_LOG_MAX_CHARS",
+    "AIRFLOW_LOG_MAX_DOWNLOAD_BYTES",
+    "AIRFLOW_CONTEXT_RUN_LIMIT",
+    "RECOVERY_POLL_SECONDS",
 )
 
 
@@ -70,7 +82,13 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep developer shells and a local .env file from leaking into tests."""
     for key in _SETTINGS_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
-    for settings_class in (Settings, DatabaseSettings, MetadataSettings, FrontendSettings):
+    for settings_class in (
+        Settings,
+        DatabaseSettings,
+        MetadataSettings,
+        AirflowSettings,
+        FrontendSettings,
+    ):
         monkeypatch.setitem(settings_class.model_config, "env_file", None)
 
 

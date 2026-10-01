@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from backend.airflow.settings import AirflowSettings
 from backend.app import create_app
 from backend.config import ConfigurationError, Settings
 from backend.db.settings import DatabaseSettings
@@ -162,10 +163,19 @@ def test_http_errors_use_envelope(client: TestClient) -> None:
 def test_api_docs_disabled_in_prod(
     make_settings: Callable[..., Settings], env: str, expected: int
 ) -> None:
-    # Prod requires a configured database (S02). The pool is lazy, so nothing connects here.
+    # Prod requires a configured database (S02) and Airflow over https (S05). Both clients are
+    # lazy, so nothing connects here.
     db = DatabaseSettings(_env_file=None, pg_password=SecretStr("unused"), pg_port=1)
+    airflow_settings = AirflowSettings(
+        _env_file=None,
+        airflow_base_url="https://airflow.example.com",
+        airflow_username="svc",
+        airflow_password=SecretStr("unused"),
+    )
     app = create_app(
-        make_settings(env=env, cors_allow_origins=["https://ops.example.com"]), db_settings=db
+        make_settings(env=env, cors_allow_origins=["https://ops.example.com"]),
+        db_settings=db,
+        airflow_settings=airflow_settings,
     )
     with TestClient(app) as client:
         for path in ("/docs", "/redoc", "/openapi.json"):
@@ -200,7 +210,7 @@ def test_readiness_aggregates_component_states(app: FastAPI, client: TestClient)
         return ComponentStatus(status="degraded", detail="replica lag")
 
     registry.register("db", ok)
-    registry.register("airflow", degraded)
+    registry.register("replica", degraded)
     response = client.get("/health/ready", headers=auth("viewer"))
     assert response.status_code == 200
     assert response.json()["status"] == "degraded"
