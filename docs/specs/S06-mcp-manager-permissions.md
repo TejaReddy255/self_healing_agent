@@ -1,7 +1,7 @@
 ---
 id: S06
 title: MCP manager and explicit tool-permission registry
-status: IN_REVIEW
+status: DONE
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, security-reviewer]
@@ -251,3 +251,4 @@ Revert the code. Audit rows remain.
   - Status READY.
 - 2026-10-01 — approved by product owner ("approve S06 and implement it"). Status IN_PROGRESS.
 - 2026-10-01 — implemented. Reviews by code-reviewer and security-reviewer were addressed (re-run after a session-limit failure). Product owner decided the hybrid tripwire with `readOnlyHint` and mandatory full-definition pins: AC3 and AC10 amended. Status IN_REVIEW.
+- 2026-10-01 — accepted by product owner. Status DONE; merged to `main`.
