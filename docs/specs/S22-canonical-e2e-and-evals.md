@@ -53,6 +53,9 @@ One recorded live run (video or log bundle) of the canonical scenario, attached 
 ## Rollback
 Not applicable (test assets).
 
+## Open issues
+- From S05 (decision 2026-10-01): S05 was verified only against the respx fake. Run the S05 client and context endpoint against the Airflow standalone container here and record the evidence in S05 too.
+
 ## Verification evidence
 | Check | Command | Result | Evidence / notes |
 |---|---|---|---|
