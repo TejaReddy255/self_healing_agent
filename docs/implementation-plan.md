@@ -39,7 +39,7 @@ riskiest safety boundary (execution, S11) lands in Phase 2 so it gets the longes
 | [S04](specs/S04-static-metadata-layer.md) | Static Metadata Layer (META-01..04) | 1 | backend-engineer | S03 | contract | DONE |
 | [S05](specs/S05-airflow-integration.md) | Airflow client, context provider, operator APIs (META-09) | 1 | backend-engineer | S03, S04 | security-sensitive | DONE |
 | [S06](specs/S06-mcp-manager-permissions.md) | MCP manager and tool-permission registry | 1 | backend-engineer | S02, S03 | security-sensitive | DONE |
-| [S07](specs/S07-mcp-servers-postgres-mysql.md) | PostgreSQL and MySQL MCP servers | 1 | backend-engineer | S06 | security-sensitive | IN_REVIEW |
+| [S07](specs/S07-mcp-servers-postgres-mysql.md) | PostgreSQL and MySQL MCP servers | 1 | backend-engineer | S06 | security-sensitive | DONE |
 | [S08](specs/S08-llm-agent-runtime.md) | LLM and agent runtime foundation | 2 | ai-engineer | S02, S03, S06 | ai, security-sensitive | DRAFT |
 | [S09](specs/S09-diagnostic-rca.md) | Diagnostic service, read-only RCA (manual) | 2 | ai-engineer | S04, S05, S06, S08 | ai, security-sensitive, schema | DRAFT |
 | [S10](specs/S10-hitl-reviews-revisions-sop.md) | HITL reviews, revisions, SOP governance | 2 | backend-engineer | S09 | ai, security-sensitive, schema, runtime | DRAFT |

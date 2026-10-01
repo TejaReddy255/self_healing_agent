@@ -1,7 +1,7 @@
 ---
 id: S07
 title: PostgreSQL and MySQL MCP servers
-status: IN_REVIEW
+status: DONE
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, security-reviewer]
@@ -235,3 +235,4 @@ Revert the code, stop the servers, and `docker compose down` the data containers
   - Status READY.
 - 2026-10-01 — approved by product owner ("approve S07 and implement it"). Status IN_PROGRESS.
 - 2026-10-01 — implemented. Review findings fixed (dispositions above). The product owner amended AC5's wording (MySQL `SLEEP()` ends early instead of failing). Contract details recorded: the `find_duplicates` fields, the writer role model, the function allowlist, loopback binding and the MySQL port. Status IN_REVIEW.
+- 2026-10-01 — accepted by product owner. Status DONE; merged to `main`.
