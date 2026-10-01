@@ -83,5 +83,8 @@ uv run uvicorn backend.main:app --reload                   # API on :8000
 uv run streamlit run frontend/app.py                       # operator console on :8501
 ```
 
+In a freshly created `.venv`, Smart App Control can block uv's newly built `.exe` launchers (e.g. `mypy.exe`, os error 4551).
+Use the module form instead: `uv run python -m mypy …`, `uv run python -m pytest …`.
+
 Database access uses **asyncpg** (ADR-002 amended). psycopg's bundled DLL is blocked by Windows Smart App
 Control on the development machine, so don't reintroduce it. SQL uses `$n` placeholders.
