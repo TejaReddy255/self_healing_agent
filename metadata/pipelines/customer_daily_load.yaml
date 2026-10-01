@@ -1,0 +1,64 @@
+pipeline_id: customer_daily_load
+name: Customer Daily Load
+description: Customer master ETL from MySQL to PostgreSQL.
+status: ACTIVE
+
+airflow:
+  dag_id: customer_daily_load
+
+source:
+  system: mysql
+  database: sales
+  schema: sales
+  table: customer
+
+target:
+  system: postgresql
+  database: warehouse
+  schema: dw
+  table: customer
+
+datasets:
+  - name: sales.customer
+    system: mysql
+    pii_columns: [email, phone]
+  - name: dw.customer
+    system: postgresql
+    pii_columns: [email, phone]
+
+sla:
+  enabled: true
+  expected_completion_time: "03:00"
+  timezone: UTC
+  max_runtime_minutes: 45
+  severity: CRITICAL
+
+monitoring:
+  enabled: true
+  airflow: {enabled: true}
+  dq: {enabled: true}
+  sla: {enabled: true}
+  database: {enabled: true}
+  mcp: {enabled: true}
+  critical_runtime_factor: 1.5
+
+self_healing:
+  enabled: true
+  auto_rca: true
+  human_approval_required: true
+  permitted_systems: [postgresql]
+  on_recovery_failure: REPLAN_REQUIRED
+
+dq_profile:
+  SOURCE:
+    - {agent: profiling, enabled: true, blocking: false}
+  TARGET:
+    - {agent: custom_dq, enabled: true, blocking: true, rules: [BR-CUST-001, BR-CUST-002]}
+    - {agent: profiling, enabled: true, blocking: false}
+  RECONCILIATION:
+    - agent: recon
+      enabled: true
+      blocking: true
+      params: {key_columns: [customer_id], compare: row_count}
+
+tags: [customer, daily]

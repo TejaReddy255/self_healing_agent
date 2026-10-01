@@ -68,3 +68,59 @@ def test_checker_flags_forbidden_imports(tmp_path: Path) -> None:
         ("json", True),
         ("pydantic", True),
     ]
+
+
+# --- S04-AC6: only backend/metadata reads the metadata directory ------------------------------
+
+REPO = DOMAIN.parent.parent
+METADATA_PACKAGE = REPO / "backend" / "metadata"
+SCANNED = [REPO / "backend", REPO / "frontend", REPO / "tools"]
+METADATA_NAMES = {"metadata_dir", "METADATA_DIR", "DEFAULT_METADATA_DIR", "resolved_dir"}
+YAML_LOADERS = {"load", "safe_load", "full_load", "unsafe_load", "load_all", "safe_load_all"}
+
+
+def metadata_file_access(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            if node.attr in METADATA_NAMES:
+                found.append(f"{node.lineno}: .{node.attr}")
+            if (
+                node.attr in YAML_LOADERS
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "yaml"
+            ):
+                found.append(f"{node.lineno}: yaml.{node.attr}")
+        elif isinstance(node, ast.Name) and node.id in METADATA_NAMES:
+            found.append(f"{node.lineno}: {node.id}")
+        elif isinstance(node, ast.ImportFrom) and node.module == "yaml":
+            found.append(f"{node.lineno}: from yaml import ...")
+    return found
+
+
+@pytest.mark.spec("S04-AC6")
+def test_only_the_metadata_package_reads_metadata_files() -> None:
+    problems = [
+        f"{path.relative_to(REPO)}:{hit}"
+        for root in SCANNED
+        for path in sorted(root.rglob("*.py"))
+        if not path.is_relative_to(METADATA_PACKAGE)
+        for hit in metadata_file_access(path)
+    ]
+    assert problems == []
+
+
+@pytest.mark.spec("S04-AC6")
+def test_metadata_boundary_checker_flags_direct_reads(tmp_path: Path) -> None:
+    sample = tmp_path / "sneaky.py"
+    sample.write_text(
+        "import yaml\nfrom backend.metadata.settings import DEFAULT_METADATA_DIR\n"
+        "data = yaml.safe_load((DEFAULT_METADATA_DIR / 'pipelines/x.yaml').read_text())\n"
+        "path = settings.metadata_dir\n",
+        encoding="utf-8",
+    )
+    hits = metadata_file_access(sample)
+    assert any("yaml.safe_load" in h for h in hits)
+    assert any("DEFAULT_METADATA_DIR" in h for h in hits)
+    assert any(".metadata_dir" in h for h in hits)

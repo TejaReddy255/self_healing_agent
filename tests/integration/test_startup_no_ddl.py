@@ -65,13 +65,14 @@ def test_startup_runs_no_ddl_on_an_empty_database(
         "the app must not create anything, not even schema_migrations"
     )
     assert status == 503
-    assert body["components"] == {
-        "db": {"status": "ok", "detail": None},
-        "migrations": {
-            "status": "down",
-            "detail": "not initialised: run python -m backend.db.migrate up",
-        },
+    components = body["components"]
+    assert components["db"] == {"status": "ok", "detail": None}
+    assert components["migrations"] == {
+        "status": "down",
+        "detail": "not initialised: run python -m backend.db.migrate up",
     }
+    # Later slices add components (S04: metadata); none may mask the database ones.
+    assert set(components) >= {"db", "migrations"}
 
 
 def test_ready_when_all_migrations_applied(

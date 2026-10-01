@@ -1,7 +1,7 @@
 ---
 id: S04
 title: Static Metadata Layer (META-01..04)
-status: READY
+status: IN_PROGRESS
 phase: 1
 owner_agent: backend-engineer
 reviewers: [code-reviewer, solution-architect]
@@ -10,8 +10,8 @@ blocked_by: []
 traces: [FR-001, FR-002, FR-003, FR-004, FR-005, UC-AC8, NFR-002, NFR-006]
 source_sections: ["src §33.1–§33.7", "src §33.13", "src §33.14", "src §35.2"]
 tags: [contract]
-approved_by:
-approved_on:
+approved_by: product owner
+approved_on: 2026-10-01
 ---
 
 # S04 — Static Metadata Layer
@@ -246,3 +246,4 @@ Revert the code. The `metadata/` directory is additive.
 - 2026-09-29 — created (DRAFT)
 - 2026-10-01 — refined via `/slice-spec`. Concrete content models, validation codes, API shapes, service contracts and audit added. AC1–AC9 sharpened (IDs kept). AC10–AC12 added (APIs/readiness, SOP content hash, pipeline semantics). YAML hardening (duplicate keys, anchors, path confinement) added. Status READY. Open issues 1–2 need product-owner answers.
 - 2026-10-01 — product owner decided open issues 1 (auto-refresh every 30 s across processes) and 2 (start degraded). Added `refresher.py`, `MetadataHealth.state`/`rejected_candidate`, `METADATA_REFRESH_INTERVAL_S`, readiness `degraded`, and AC13/AC14.
+- 2026-10-01 — approved by product owner ("approve S04 and implement it"). Status IN_PROGRESS.

@@ -2,6 +2,8 @@
 
 The lifespan opens and closes the database pool and **never runs DDL** (ADR-003): schema changes
 happen only through ``python -m backend.db.migrate``; readiness reports pending migrations.
+Static metadata is loaded once at startup (an invalid tree leaves it EMPTY rather than failing,
+S04) and refreshed in the background while the app runs.
 """
 
 from __future__ import annotations
@@ -14,13 +16,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api import activities, health
+from backend.api import activities, health, metadata
 from backend.api.errors import error_response, install_exception_handlers
 from backend.config import ConfigurationError, Settings, load_settings
 from backend.db.health import migrations_check
 from backend.db.migrations import MigrationError, discover
 from backend.db.pool import Database, DatabaseUnavailableError
 from backend.db.settings import DatabaseSettings, load_database_settings
+from backend.metadata.refresher import MetadataRefresher
+from backend.metadata.service import MetadataService
+from backend.metadata.settings import MetadataSettings, load_metadata_settings
 from backend.observability.context import REQUEST_ID_HEADER
 from backend.observability.logging import configure_logging
 from backend.observability.middleware import RequestContextMiddleware
@@ -28,6 +33,7 @@ from backend.observability.readiness import ReadinessRegistry
 from backend.security.auth import TokenRegistry
 from backend.services.activity_service import ActivityBroadcaster, ActivityService
 from backend.services.audit_service import AuditService
+from backend.services.metadata_audit import make_reload_auditor
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +45,13 @@ async def _database_unavailable(_: Request, exc: Exception) -> JSONResponse:
 
 
 def create_app(
-    settings: Settings | None = None, db_settings: DatabaseSettings | None = None
+    settings: Settings | None = None,
+    db_settings: DatabaseSettings | None = None,
+    metadata_settings: MetadataSettings | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     db_settings = db_settings or load_database_settings()
+    metadata_settings = metadata_settings or load_metadata_settings()
     configure_logging(settings.log_level)
     token_registry = TokenRegistry.from_settings(settings)
 
@@ -69,6 +78,15 @@ def create_app(
     else:
         logger.warning("database not configured (PG_PASSWORD unset): persistence is disabled")
 
+    metadata_service = MetadataService(
+        metadata_settings, auditor=make_reload_auditor(audit_service)
+    )
+    metadata_service.load_initial()
+    readiness.register("metadata", metadata_service.readiness)
+    metadata_refresher = MetadataRefresher(
+        metadata_service, metadata_settings.metadata_refresh_interval_s
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         logger.info(
@@ -82,9 +100,11 @@ def create_app(
         )
         if database is not None:
             await database.open()
+        metadata_refresher.start()
         try:
             yield
         finally:
+            await metadata_refresher.stop()
             if database is not None:
                 await database.close()
             logger.info("service stopped")
@@ -106,11 +126,14 @@ def create_app(
     app.state.broadcaster = broadcaster
     app.state.audit_service = audit_service
     app.state.activity_service = activity_service
+    app.state.metadata_service = metadata_service
+    app.state.metadata_refresher = metadata_refresher
 
     install_exception_handlers(app)
     app.add_exception_handler(DatabaseUnavailableError, _database_unavailable)
     app.include_router(health.router)
     app.include_router(activities.router)
+    app.include_router(metadata.router)
 
     # Added last = outermost: CORS preflight is answered before request handling.
     app.add_middleware(RequestContextMiddleware)

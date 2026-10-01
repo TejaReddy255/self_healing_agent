@@ -1,0 +1,7 @@
+ownership_id: OWN-CUSTOMER
+pipeline_ids: [customer_daily_load]
+team: Data Engineering
+support_group: Data Operations
+reviewers: [data-eng-lead, data-ops-oncall]
+escalation: [data-ops-oncall, data-eng-lead]
+tags: [customer]

@@ -1,0 +1,22 @@
+issue_id: KI-DQ-001
+title: Duplicate customer records after incremental replay
+category: DUPLICATE_DATA
+status: ACTIVE
+pipeline_ids: [customer_daily_load]
+error_signature:
+  type: dq
+  check: duplicate
+  column: customer_id
+symptoms:
+  - target row count greater than source
+  - duplicate customer_id detected
+  - source data contains no duplicates
+likely_causes:
+  - incremental batch replay
+  - failed idempotency logic
+recommended_diagnostics:
+  - compare source and target counts
+  - inspect Airflow retry history
+  - inspect load/merge logic
+related_sops: [SOP-PG-002]
+tags: [duplicates]

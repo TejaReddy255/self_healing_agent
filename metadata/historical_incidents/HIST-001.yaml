@@ -1,0 +1,10 @@
+historical_incident_id: HIST-001
+title: Duplicate customers after a retried incremental load
+pipeline_ids: [customer_daily_load]
+category: DUPLICATE_DATA
+occurred_on: 2026-03-14
+root_cause: A task retry replayed the incremental batch without a merge key, inserting duplicate customers.
+resolution: Duplicates were removed with an approved delete, then the merge was made idempotent on customer_id.
+related_sops: [SOP-PG-002]
+related_known_issues: [KI-DQ-001]
+tags: [duplicates]
